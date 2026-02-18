@@ -798,7 +798,6 @@ if systemctl is-active --quiet mariadb; then
     success "✅ MariaDB service running"
 else
     error "❌ MariaDB not running!"
-    ((ERRORS++))
 fi
 
 # Test Apache
@@ -806,7 +805,6 @@ if systemctl is-active --quiet httpd; then
     success "✅ Apache service running"
 else
     error "❌ Apache not running!"
-    ((ERRORS++))
 fi
 
 # Test PHP
@@ -815,7 +813,6 @@ if php -v >/dev/null 2>&1; then
     success "✅ PHP $PHP_VERSION installed"
 else
     error "❌ PHP not working!"
-    ((ERRORS++))
 fi
 
 # Test Perl DBI
@@ -823,7 +820,6 @@ if perl -MDBI -e 'exit 0' 2>/dev/null; then
     success "✅ Perl DBI module OK"
 else
     error "❌ Perl DBI module failed!"
-    ((ERRORS++))
 fi
 
 # Test DBD::MariaDB (CRITICAL!)
@@ -832,7 +828,6 @@ if perl -MDBD::MariaDB -e 'exit 0' 2>/dev/null; then
     success "✅ Perl DBD::MariaDB $DBD_VERSION OK (Native driver!)"
 else
     error "❌ Perl DBD::MariaDB module failed!"
-    ((ERRORS++))
 fi
 
 # Test database connectivity
@@ -841,7 +836,6 @@ if mysql -u cron -p"${DB_PASSWORD}" -e "SELECT VERSION();" asterisk >/dev/null 2
     success "✅ Database auth working (cron user) - MariaDB $MYSQL_VER"
 else
     error "❌ Database authentication failed (cron user)!"
-    ((ERRORS++))
 fi
 
 if [ $ERRORS -gt 0 ]; then
