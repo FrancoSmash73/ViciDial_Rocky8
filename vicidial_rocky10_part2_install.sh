@@ -2482,7 +2482,8 @@ if [ "$SKIP_STEP" = false ]; then
         if ! command -v cpanm &>/dev/null; then
             dnf install -y perl-App-cpanminus 2>/dev/null || true
         fi
-        cpanm --notest Switch && success "Switch.pm installed" ||             warning "Switch.pm install failed - AST_update_AMI2.pl and AST_manager_listen_AMI2.pl will not start"
+        cpanm --notest Switch && success "Switch.pm installed" || \
+            warning "Switch.pm install failed - AST_update_AMI2.pl and AST_manager_listen_AMI2.pl will not start"
     fi
 
     # -----------------------------------------------------------------------
@@ -2512,7 +2513,8 @@ print(f'Fixed {n} location(s) in '+fn)
             fi
         fi
     done
-    [ "$PS_FIX_COUNT" -gt 0 ] && success "ps format patched in $PS_FIX_COUNT file(s)" ||         info "ps format already correct in all ViciDial scripts"
+    [ "$PS_FIX_COUNT" -gt 0 ] && success "ps format patched in \$PS_FIX_COUNT file(s)" || \
+        info "ps format already correct in all ViciDial scripts"
 
     # -----------------------------------------------------------------------
     # PART A: flock-based cron wrapper
@@ -2887,7 +2889,7 @@ services=("mariadb" "httpd" "asterisk")
 for svc in "${services[@]}"; do
 if ! systemctl is-active --quiet "$svc"; then
 echo -e "${RED}[FAIL] CRITICAL: $svc is not running!${NC}"
-((ERRORS++))
+ERRORS=$((ERRORS + 1))
 else
 success "$svc is running"
 fi
@@ -2898,22 +2900,23 @@ if systemctl is-active --quiet vicidial-process-monitor; then
     success "Process monitor daemon is running"
 else
     warning "Process monitor not running - run: systemctl start vicidial-process-monitor"
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS + 1))
 fi
 
 if systemctl is-active --quiet vicidial-keepalive.timer; then
     success "Systemd keepalive timer is active"
 else
     warning "Keepalive timer not active - run: systemctl start vicidial-keepalive.timer"
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS + 1))
 fi
 
-KEEPALIVE_COUNT=$(pgrep -f "ADMIN_keepalive_ALL.pl" | wc -l || echo "0")
+KEEPALIVE_COUNT=$( { pgrep -f "ADMIN_keepalive_ALL.pl" 2>/dev/null || true; } | wc -l )
+KEEPALIVE_COUNT="${KEEPALIVE_COUNT//[[:space:]]/}"
 if [ "$KEEPALIVE_COUNT" -le 1 ]; then
     success "Duplicate process check: OK ($KEEPALIVE_COUNT keepalive instances)"
 else
     warning "Multiple keepalive processes detected: $KEEPALIVE_COUNT (monitor will resolve this)"
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS + 1))
 fi
 
 # Check critical files
@@ -2929,14 +2932,14 @@ critical_files=(
 for file in "${critical_files[@]}"; do
 if [ ! -f "$file" ]; then
 warning "Missing file: $file"
-((WARNINGS++))
+WARNINGS=$((WARNINGS + 1))
 fi
 done
 
 # Check database
 if ! mysql -u cron -p"${DB_PASSWORD}" asterisk -e "SELECT 1" &>/dev/null; then
 echo -e "${RED}[FAIL] CRITICAL: Cannot connect to asterisk database${NC}"
-((ERRORS++))
+ERRORS=$((ERRORS + 1))
 fi
 
 # Check DAHDI (lenient for no-hardware systems)
@@ -2945,7 +2948,7 @@ if ! lsmod | grep -q "^dahdi "; then
 		info "DAHDI software installed (no hardware - OK for VoIP-only)"
 	else
 		warning "DAHDI module not loaded and software not detected"
-		((WARNINGS++))
+		WARNINGS=$((WARNINGS + 1))
 	fi
 else
 	success "DAHDI module loaded"
@@ -2961,17 +2964,17 @@ if command -v dahdi_cfg &>/dev/null; then
 		info "DAHDI Tools installed (version check unclear - libraries present)"
 	else
 		warning "DAHDI Tools version mismatch"
-		((WARNINGS++))
+		WARNINGS=$((WARNINGS + 1))
 	fi
 else
 	warning "dahdi_cfg not found"
-	((WARNINGS++))
+	WARNINGS=$((WARNINGS + 1))
 fi
 
 # Check ConfBridge
 if ! asterisk -rx "module show like app_confbridge" 2>/dev/null | grep -q "app_confbridge"; then
 warning "ConfBridge module not loaded"
-((WARNINGS++))
+WARNINGS=$((WARNINGS + 1))
 fi
 
 echo ""
