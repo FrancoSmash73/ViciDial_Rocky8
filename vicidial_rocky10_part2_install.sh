@@ -1945,6 +1945,71 @@ SQLEOF
 fi
 
 # ===========================================================================
+# STEP 11.5: INSERT vicidial_inbound_dids FOR ALL CONFBRIDGE ROOMS
+# ---------------------------------------------------------------------------
+# agi-DID_route.agi uses exact-match only (WHERE did_pattern = '$extension').
+# Calls to conference rooms (9600000-9600299) arriving via trunkinbound must
+# have a DID entry or the AGI falls back to the "default" DID and plays
+# "this number is not in service".  Each entry routes did_route=EXTEN back
+# to the same extension in the default context, where the _9600XXX pattern
+# in extensions.conf puts the caller directly into ConfBridge.
+# INSERT IGNORE makes this step fully idempotent on re-run.
+# ===========================================================================
+section "STEP 11.5/22: INSERTING DID ENTRIES FOR CONFBRIDGE ROOMS"
+check_step "STEP_11_5" "11.5/22" "vicidial_inbound_dids ConfBridge rooms"
+
+if [ "$SKIP_STEP" = false ]; then
+    log "Reading confbridge room range from vicidial_confbridges..."
+
+    CB_MIN=$(mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+        -sNe "SELECT MIN(conf_exten) FROM vicidial_confbridges WHERE server_ip='${SERVER_IP}';" 2>/dev/null || echo "9600000")
+    CB_MAX=$(mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+        -sNe "SELECT MAX(conf_exten) FROM vicidial_confbridges WHERE server_ip='${SERVER_IP}';" 2>/dev/null || echo "9600299")
+    CB_TOTAL=$(mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+        -sNe "SELECT COUNT(*) FROM vicidial_confbridges WHERE server_ip='${SERVER_IP}';" 2>/dev/null || echo "0")
+
+    info "ConfBridge range: ${CB_MIN} – ${CB_MAX} (${CB_TOTAL} rooms)"
+
+    log "Bulk-inserting DID entries ${CB_MIN}–${CB_MAX} (INSERT IGNORE — safe to re-run)..."
+
+    python3 - << PYEOF | mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME"
+cb_min = int("${CB_MIN}")
+cb_max = int("${CB_MAX}")
+rows = []
+for i in range(cb_min, cb_max + 1):
+    rows.append(
+        f"('{i}','ConfBridge Room {i}','Y','EXTEN','{i}','default','CID','LB',"
+        f"999,'1','N','DISABLED','EXTEN','9998811112','default','CID','LB',"
+        f"999,'1','---ALL---','VOICEMAIL','AGENTDIRECT','VOICEMAIL','AGENTDIRECT','Y',NOW())"
+    )
+print("INSERT IGNORE INTO vicidial_inbound_dids")
+print("  (did_pattern,did_description,did_active,did_route,extension,exten_context,")
+print("   call_handle_method,agent_search_method,list_id,phone_code,record_call,")
+print("   filter_inbound_number,filter_action,filter_extension,filter_exten_context,")
+print("   filter_call_handle_method,filter_agent_search_method,filter_list_id,")
+print("   filter_phone_code,user_group,user_unavailable_action,")
+print("   user_route_settings_ingroup,filter_user_unavailable_action,")
+print("   filter_user_route_settings_ingroup,inbound_route_answer,modify_stamp)")
+print("VALUES")
+print(",\n".join(rows) + ";")
+PYEOF
+
+    DID_COUNT=$(mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+        -sNe "SELECT COUNT(*) FROM vicidial_inbound_dids
+              WHERE did_pattern REGEXP '^[0-9]+$'
+              AND CAST(did_pattern AS UNSIGNED) BETWEEN ${CB_MIN} AND ${CB_MAX}
+              AND did_route='EXTEN';" 2>/dev/null || echo "0")
+
+    if [ "$DID_COUNT" -ge "$CB_TOTAL" ]; then
+        success "vicidial_inbound_dids: ${DID_COUNT} confbridge DID entries verified (${CB_MIN}–${CB_MAX})"
+    else
+        warning "Expected ${CB_TOTAL} DID entries, found ${DID_COUNT} — check DB manually"
+    fi
+
+    mark_step_complete "STEP_11_5"
+fi
+
+# ===========================================================================
 # STEP 12: APPLY VICIDIAL CONFBRIDGE PATCHES
 # ===========================================================================
 section "STEP 12/22: APPLYING VICIDIAL CONFBRIDGE PATCHES"
