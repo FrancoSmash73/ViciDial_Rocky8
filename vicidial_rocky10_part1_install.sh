@@ -26,6 +26,14 @@
 # ✅ Fixed String::CRC incompatibility (use String::CRC32)
 # ✅ Fixed DBD::MariaDB build (add Devel::CheckLib)
 # ✅ Added credential persistence for verification
+#
+# CHANGELOG v1.2 (2026-02-18):
+# ✅ Added perl-MIME-tools (fixes AST_inbound_email_parser.pl MIME::Decoder error)
+# ✅ Fixed chrony makestep 1.0 -1 (clock steps immediately after reboot)
+# ✅ Added chronyd auto-restart drop-in (prevents NTP drift after stop)
+# ✅ Added tuned install + latency-performance profile (VoIP optimization)
+# ✅ Added fail2ban install + SSH/Asterisk/Apache jail config (security)
+# ✅ Added vici-status.sh server health check script
 ################################################################################
 
 set -euo pipefail
@@ -46,7 +54,7 @@ handle_error() {
 # CONFIGURATION
 ################################################################################
 
-VERSION="1.1"
+VERSION="1.2"
 SCRIPT_NAME="ViciDial ULTIMATE Part 1"
 START_TIME=$(date +%s)
 
@@ -666,6 +674,7 @@ if ! is_complete "PERL_MODULES"; then
         perl-Spreadsheet-ParseExcel perl-Archive-Zip \
         perl-HTML-Parser perl-HTML-Tree perl-MailTools \
         perl-Net-Server perl-Compress-Raw-Zlib \
+        perl-MIME-tools \
 	perl-DBD-MariaDB
 
     
@@ -773,7 +782,95 @@ EOF
     mkdir -p /var/www/html/vicidial
     mkdir -p /var/www/html/agc
     chown -R apache:apache /var/www/html
-    
+
+    # Chrony: always step-correct clock on large offset (fixes health page red after reboot)
+    log "Configuring chrony for immediate clock correction..."
+    if [ -f /etc/chrony.conf ]; then
+        sed -i 's/^makestep.*/makestep 1.0 -1/' /etc/chrony.conf
+        success "chrony makestep set to 1.0 -1 (always steps on offset > 1s)"
+    fi
+
+    # Chronyd auto-restart drop-in (prevents clock drift if chronyd stops)
+    log "Adding chronyd auto-restart drop-in..."
+    mkdir -p /etc/systemd/system/chronyd.service.d/
+    cat > /etc/systemd/system/chronyd.service.d/restart.conf << 'EOF'
+[Service]
+Restart=always
+RestartSec=30
+EOF
+    systemctl daemon-reload
+    systemctl restart chronyd
+    success "chronyd configured with Restart=always"
+
+    # Tuned: latency-performance profile for VoIP
+    log "Installing tuned for VoIP latency optimization..."
+    dnf install -y tuned
+    systemctl enable --now tuned
+    tuned-adm profile latency-performance
+    success "tuned active with latency-performance profile"
+
+    # Fail2ban: SSH, Asterisk, Apache protection
+    log "Installing fail2ban for security hardening..."
+    dnf install -y fail2ban fail2ban-systemd
+    cat > /etc/fail2ban/jail.d/vicidial.conf << 'EOF'
+[sshd]
+enabled  = true
+maxretry = 5
+bantime  = 3600
+findtime = 600
+
+[asterisk]
+enabled  = true
+maxretry = 5
+bantime  = 86400
+findtime = 600
+logpath  = /var/log/asterisk/messages
+
+[apache-auth]
+enabled  = true
+maxretry = 5
+bantime  = 3600
+findtime = 600
+EOF
+    systemctl enable --now fail2ban
+    success "fail2ban installed with SSH/Asterisk/Apache jails"
+
+    # ViciDial server status script
+    log "Creating vici-status.sh health check script..."
+    cat > /usr/local/bin/vici-status.sh << 'EOF'
+#!/bin/bash
+echo "========================================="
+echo "  VICIDIAL SERVER STATUS - $(date '+%Y-%m-%d %H:%M:%S')"
+echo "========================================="
+services=(
+    "asterisk"
+    "mariadb"
+    "httpd"
+    "php-fpm"
+    "dahdi"
+    "chronyd"
+    "rc-local"
+    "vicidial-keepalive.timer"
+    "vicidial-process-monitor"
+    "tuned"
+    "fail2ban"
+)
+for svc in "${services[@]}"; do
+    status=$(systemctl is-active "$svc" 2>/dev/null)
+    if [ "$status" = "active" ]; then
+        printf "  %-35s [\e[32m OK \e[0m]\n" "$svc"
+    else
+        printf "  %-35s [\e[31mFAIL\e[0m] ($status)\n" "$svc"
+    fi
+done
+echo "========================================="
+EOF
+    chmod +x /usr/local/bin/vici-status.sh
+    # Add to login profile so it shows on every SSH session
+    echo '/usr/local/bin/vici-status.sh' > /etc/profile.d/vici-status.sh
+    chmod +x /etc/profile.d/vici-status.sh
+    success "vici-status.sh installed — runs automatically on SSH login"
+
     mark_complete "SYSTEM_CONFIG"
     success "System configured"
 fi

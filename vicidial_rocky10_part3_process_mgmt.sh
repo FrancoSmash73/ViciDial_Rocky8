@@ -3,9 +3,9 @@
 # STEP 23: ViciDial Process Management Infrastructure
 # Modular Addon Script - Standalone / Run After Any Part 2 Install
 #
-# Version:  2.0
+# Version:  2.1
 # Created:  2026-02-16
-# Updated:  2026-02-17
+# Updated:  2026-02-18
 # Author:   Striker24x7 + Claude (Anthropic)
 # Target:   Rocky Linux 10.x / AlmaLinux 10.x
 #
@@ -297,7 +297,7 @@ PID_FILE="/var/run/vicidial_process_monitor.pid"
 declare -A MAX_RUNTIME=(
     ["ADMIN_keepalive_ALL.pl"]=240
     ["AST_VDhopper.pl"]=180
-    ["AST_VDauto_dial_FILL.pl"]=180
+    ["AST_VDauto_dial_FILL.pl"]=600
     ["AST_flush_DBqueue.pl"]=120
     ["AST_CRON_audio_1_move_mix.pl"]=120
     ["AST_CRON_audio_2_compress.pl"]=180

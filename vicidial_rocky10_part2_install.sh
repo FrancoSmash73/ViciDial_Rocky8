@@ -1,15 +1,20 @@
 #!/bin/bash
 ################################################################################
-# VICIDIAL ULTIMATE INSTALLATION - PART 2: v11.0 FINAL
+# VICIDIAL ULTIMATE INSTALLATION - PART 2: v11.1
 # VoIP Stack: DAHDI 3.4.0, LibPRI 1.6.1, Asterisk 18 (ViciDial-patched)
 # ViciDial + ConfBridge + CRITICAL Process Management
 ################################################################################
 # Date: 2026-02-16
+# Updated: 2026-02-18
 # Author: Striker24x7 + Claude (Anthropic)
 # Target: Rocky Linux 10.x / AlmaLinux 10.x
 # Asterisk: 18.21.0-vici (from download.vicidial.com) with fallback to
 #           plain 18.26.4 + manual ViciDial patches from asterisk.org
 # DAHDI: 3.4.0 (Patched Linux + Patched Tools from FrancoSmash73)
+#
+# NEW IN v11.1 (2026-02-18):
+# ✅ FIX: AST_VDauto_dial_FILL.pl MAX_RUNTIME 180 → 600s (was killed before hopper filled)
+# ✅ FIX: vicidial_agent_disable set to NONE (default ALL blocked agent logins)
 #
 # NEW IN v11.0 - PROCESS LOCKING + CLEANUP:
 # ✅ NEW: SYSTEMD TIMERS for keepalive (eliminates duplicate process bug)
@@ -2458,6 +2463,14 @@ else
 warning "Failed to update system_settings.default_local_gmt"
 fi
 
+# Fix vicidial_agent_disable — default 'ALL' blocks agent logins on fresh installs
+if mysql -u root -p"${MYSQL_ROOT_PASSWORD}" asterisk -e \
+"UPDATE system_settings SET vicidial_agent_disable='NONE';" 2>/dev/null; then
+success "system_settings.vicidial_agent_disable set to NONE (agents can log in)"
+else
+warning "Failed to update vicidial_agent_disable"
+fi
+
 mark_step_complete "STEP_21"
 fi
 
@@ -2599,7 +2612,7 @@ PID_FILE="/var/run/vicidial_process_monitor.pid"
 declare -A MAX_RUNTIME=(
     ["ADMIN_keepalive_ALL.pl"]=240
     ["AST_VDhopper.pl"]=180
-    ["AST_VDauto_dial_FILL.pl"]=180
+    ["AST_VDauto_dial_FILL.pl"]=600
     ["AST_flush_DBqueue.pl"]=120
     ["AST_CRON_audio_1_move_mix.pl"]=120
     ["AST_CRON_audio_2_compress.pl"]=180
