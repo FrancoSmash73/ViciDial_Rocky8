@@ -1,0 +1,15 @@
+[Unit]
+Description=ViciDial Asterisk PBX (screen-based)
+Documentation=file:///usr/share/astguiclient/start_asterisk_boot.pl
+After=network.target mariadb.service httpd.service rc-local.service
+Wants=mariadb.service httpd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+ExecStart=/usr/share/astguiclient/start_asterisk_boot.pl
+ExecStop=/usr/bin/killall -9 asterisk
+
+[Install]
+WantedBy=multi-user.target
