@@ -20,6 +20,7 @@
 | `vicidial_rocky10_integration_guide.md` | Architecture overview, scenarios, troubleshooting |
 | `vicidial_rocky10_postinstall_fix_guide_p1.md` | Post-install fixes: `/run/screen` permissions, SIP bracket, firewall RTP, pjsip modules |
 | `vicidial_rocky10_postinstall_fix_guide_p2.md` | Rocky Linux 10 compatibility fixes: `Switch.pm`, `ps` truncation, daemon architecture, process monitor bugs |
+| `vicidial_rocky10_postinstall_fix_guide_p3.md` | Production runtime fixes: dual Asterisk instance, CDR permissions, remote agent WSS, VICIPHONE_SETTINGS conflict, dynamiclist audit |
 
 ---
 
