@@ -639,6 +639,16 @@ else
     info "ps format already up to date in $PS_FIX_SKIPPED file(s)"
 fi
 
+################################################################################
+# STEP G0: SCREEN DIRECTORY FIX (Rocky Linux 10 reboot bug)
+################################################################################
+
+log "Fixing /run/screen permissions for Rocky Linux 10..."
+echo "d /run/screen 1777 root root -" > /etc/tmpfiles.d/screen.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/screen.conf
+chmod 1777 /run/screen 2>/dev/null || true
+success "/run/screen configured for correct permissions on every boot"
+
 # ---------------------------------------------------------------------------
 # STEP G: VERIFICATION
 # ---------------------------------------------------------------------------
