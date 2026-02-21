@@ -1,4 +1,4 @@
-#!/bin/bash
+!/bin/bash
 ################################################################################
 # ViciDial ULTIMATE Installation - Part 1 v1.1
 # Foundation: Dependencies, Database, Web Server, Perl Modules
@@ -250,8 +250,15 @@ section "CONFIGURATION"
 # Get server IP
 if [ -z "${SERVER_IP:-}" ]; then
     DEFAULT_IP=$(hostname -I | awk '{print $1}')
-    read -p "Enter server IP address [$DEFAULT_IP]: " SERVER_IP
-    SERVER_IP="${SERVER_IP:-$DEFAULT_IP}"
+    while true; do
+        read -p "Enter server IP address [$DEFAULT_IP]: " SERVER_IP </dev/tty
+        SERVER_IP="${SERVER_IP:-$DEFAULT_IP}"
+        if [[ "$SERVER_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            break
+        else
+            echo "Invalid IP. Please enter a valid IPv4 address."
+        fi
+    done
 fi
 
 echo "SERVER_IP=$SERVER_IP" >> "$INSTALL_MARKER"
@@ -263,9 +270,15 @@ if [ -z "${INSTALL_MODE:-}" ]; then
     echo "Installation Mode:"
     echo "  [1] Standalone (single server)"
     echo "  [2] Cluster (multi-server environment)"
-    read -p "Select mode [1]: " MODE_CHOICE
-    MODE_CHOICE="${MODE_CHOICE:-1}"
-    
+    while true; do
+        read -p "Select mode [1]: " MODE_CHOICE </dev/tty
+        MODE_CHOICE="${MODE_CHOICE:-1}"
+        if [[ "$MODE_CHOICE" == "1" || "$MODE_CHOICE" == "2" ]]; then
+            break
+        else
+            echo "Invalid choice. Enter 1 or 2."
+        fi
+    done
     if [ "$MODE_CHOICE" == "2" ]; then
         INSTALL_MODE="cluster"
     else
@@ -274,14 +287,22 @@ if [ -z "${INSTALL_MODE:-}" ]; then
 fi
 
 echo "INSTALL_MODE=$INSTALL_MODE" >> "$INSTALL_MARKER"
-
-if [ "$INSTALL_MODE" == "cluster" ]; then
-    read -p "Enter Asterisk server IP address: " ASTERISK_SERVER_IP
-    echo "ASTERISK_SERVER_IP=$ASTERISK_SERVER_IP" >> "$INSTALL_MARKER"
-    echo "ASTERISK_SERVER_IP=$ASTERISK_SERVER_IP" >> "$CREDS_FILE"
-fi
 success "Installation mode: $INSTALL_MODE"
 
+# Cluster: get Asterisk server IP
+if [ "$INSTALL_MODE" == "cluster" ]; then
+    while true; do
+        read -p "Enter Asterisk server IP address (e.g. 172.235.34.224): " ASTERISK_SERVER_IP </dev/tty
+        if [[ "$ASTERISK_SERVER_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            break
+        else
+            echo "Invalid IP address. Please enter a valid IPv4 address."
+        fi
+    done
+    echo "ASTERISK_SERVER_IP=$ASTERISK_SERVER_IP" >> "$INSTALL_MARKER"
+    echo "ASTERISK_SERVER_IP=$ASTERISK_SERVER_IP" >> "$CREDS_FILE"
+    success "Asterisk server IP: $ASTERISK_SERVER_IP"
+fi
 
 # MariaDB bind IP
 if [ "$INSTALL_MODE" == "cluster" ]; then
