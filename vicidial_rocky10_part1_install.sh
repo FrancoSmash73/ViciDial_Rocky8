@@ -5,7 +5,7 @@
 # 
 # Created: February 16, 2026
 # Updated: February 17, 2026
-# Author: Striker24x7 + Claude (Anthropic)
+# Author: Frank Mac + Claude (Anthropic)
 # Target: Rocky Linux 10.x / AlmaLinux 10.x
 #
 # FEATURES:
@@ -165,12 +165,6 @@ generate_password() {
     openssl rand -base64 32 | tr -d '/+=' | cut -c1-24
 }
 
-# Load saved passwords for verification
-if [ -f /root/.vicidial_passwords ]; then
-    source /root/.vicidial_passwords
-else
-    error "Password file not found! Cannot verify database connection."
-fi
 
 ################################################################################
 # BANNER
