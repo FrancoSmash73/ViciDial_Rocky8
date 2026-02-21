@@ -274,7 +274,14 @@ if [ -z "${INSTALL_MODE:-}" ]; then
 fi
 
 echo "INSTALL_MODE=$INSTALL_MODE" >> "$INSTALL_MARKER"
+
+if [ "$INSTALL_MODE" == "cluster" ]; then
+    read -p "Enter Asterisk server IP address: " ASTERISK_SERVER_IP
+    echo "ASTERISK_SERVER_IP=$ASTERISK_SERVER_IP" >> "$INSTALL_MARKER"
+    echo "ASTERISK_SERVER_IP=$ASTERISK_SERVER_IP" >> "$CREDS_FILE"
+fi
 success "Installation mode: $INSTALL_MODE"
+
 
 # MariaDB bind IP
 if [ "$INSTALL_MODE" == "cluster" ]; then
@@ -614,40 +621,48 @@ fi
 ################################################################################
 
 if ! is_complete "VICIDIAL_DB"; then
-    log "Securing MariaDB and setting root password..."
-    
-    # On fresh install, root has no password but uses mysql_native_password
-    # Connect without password and set the root password
-    mysql -u root -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${MYSQL_ROOT_PASSWORD}');"
-    mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "FLUSH PRIVILEGES;"
-    
     log "Creating asterisk database..."
     mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e \
         "CREATE DATABASE IF NOT EXISTS asterisk DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-    log "Creating cron user..."
-    mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e \
-        "CREATE USER IF NOT EXISTS 'cron'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';"
-    mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e \
-        "GRANT ALL PRIVILEGES ON asterisk.* TO 'cron'@'localhost';"
-    mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e \
-        "GRANT RELOAD ON *.* TO 'cron'@'localhost';"
+    log "Creating cron user and syncing password..."
+    mysql -u root -p"${MYSQL_ROOT_PASSWORD}" << EOF
+CREATE USER IF NOT EXISTS 'cron'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
+ALTER USER 'cron'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON asterisk.* TO 'cron'@'localhost';
+GRANT RELOAD ON *.* TO 'cron'@'localhost';
 
-    log "Creating custom user..."
-    mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e \
-        "CREATE USER IF NOT EXISTS 'custom'@'localhost' IDENTIFIED BY '${CUSTOM_DB_PASSWORD}';"
-    mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e \
-        "GRANT SELECT,INSERT,UPDATE,DELETE ON asterisk.* TO 'custom'@'localhost';"
+CREATE USER IF NOT EXISTS 'custom'@'localhost' IDENTIFIED BY '${CUSTOM_DB_PASSWORD}';
+ALTER USER 'custom'@'localhost' IDENTIFIED BY '${CUSTOM_DB_PASSWORD}';
+GRANT SELECT,INSERT,UPDATE,DELETE ON asterisk.* TO 'custom'@'localhost';
 
-    mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "FLUSH PRIVILEGES;"
+FLUSH PRIVILEGES;
+EOF
 
-    # Test connectivity
+    # Cluster mode — add remote grants for Asterisk server
+    if [ "$INSTALL_MODE" == "cluster" ] && [ -n "${ASTERISK_SERVER_IP:-}" ]; then
+        log "Adding cluster grants for Asterisk server ${ASTERISK_SERVER_IP}..."
+        mysql -u root -p"${MYSQL_ROOT_PASSWORD}" << EOF
+CREATE USER IF NOT EXISTS 'cron'@'${ASTERISK_SERVER_IP}' IDENTIFIED BY '${DB_PASSWORD}';
+ALTER USER 'cron'@'${ASTERISK_SERVER_IP}' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON asterisk.* TO 'cron'@'${ASTERISK_SERVER_IP}';
+GRANT RELOAD ON *.* TO 'cron'@'${ASTERISK_SERVER_IP}';
+
+CREATE USER IF NOT EXISTS 'custom'@'${ASTERISK_SERVER_IP}' IDENTIFIED BY '${CUSTOM_DB_PASSWORD}';
+ALTER USER 'custom'@'${ASTERISK_SERVER_IP}' IDENTIFIED BY '${CUSTOM_DB_PASSWORD}';
+GRANT SELECT,INSERT,UPDATE,DELETE ON asterisk.* TO 'custom'@'${ASTERISK_SERVER_IP}';
+
+FLUSH PRIVILEGES;
+EOF
+    fi
+
+    # Verify connectivity
     if mysql -u cron -p"${DB_PASSWORD}" -e "SELECT VERSION();" asterisk >/dev/null 2>&1; then
         success "Database users created and verified"
     else
         error "Database user creation failed!"
     fi
-    
+
     mark_complete "VICIDIAL_DB"
 fi
 
