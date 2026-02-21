@@ -657,6 +657,10 @@ if ! is_complete "VICIDIAL_DB"; then
     mysql -u root -p"${MYSQL_ROOT_PASSWORD}" << EOF
 CREATE USER IF NOT EXISTS 'cron'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
 ALTER USER 'cron'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
+CREATE USER IF NOT EXISTS 'cron'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD}';
+ALTER USER 'cron'@'127.0.0.1' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON asterisk.* TO 'cron'@'127.0.0.1';
+GRANT RELOAD ON *.* TO 'cron'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON asterisk.* TO 'cron'@'localhost';
 GRANT RELOAD ON *.* TO 'cron'@'localhost';
 
