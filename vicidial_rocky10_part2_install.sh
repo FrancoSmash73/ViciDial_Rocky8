@@ -2511,22 +2511,20 @@ if [ "$SKIP_STEP" = false ]; then
     for ps_target in \
         "/usr/share/astguiclient/ADMIN_keepalive_ALL.pl" \
         "/usr/share/astguiclient/AST_manager_send.pl" \
-        "/usr/share/astguiclient/AST_VDremote_agents.pl"; do
+        "/usr/share/astguiclient/AST_VDremote_agents.pl" \
+        "/usr/share/astguiclient/AST_VDauto_dial.pl"; do
         if [ -f "$ps_target" ]; then
-            HITS=$(grep -cF '/bin/ps -o "%p %a" --no-headers -A' "$ps_target" 2>/dev/null || echo 0)
-            if [ "$HITS" -gt 0 ]; then
-                python3 -c "
-fn=open('/dev/stdin').read().strip()
-with open(fn,'r') as f: c=f.read()
-n=c.count('/bin/ps -o "%p %a" --no-headers -A')
-with open(fn,'w') as f: f.write(c.replace('/bin/ps -o "%p %a" --no-headers -A','/bin/ps -o "pid,args" --no-headers -A'))
-print(f'Fixed {n} location(s) in '+fn)
-" <<< "$ps_target"
+            HITS=$(grep -cF '/bin/ps -o "%p %a" --no-headers -A' "$ps_target" 2>/dev/null || echo "0")
+            if [ "$HITS" -gt "0" ] 2>/dev/null; then
+                sed -i 's|/bin/ps -o "%p %a" --no-headers -A|/bin/ps -o "pid,args" --no-headers -A|g' "$ps_target"
                 PS_FIX_COUNT=$((PS_FIX_COUNT + 1))
+                success "Fixed: $ps_target"
+            else
+                info "Already patched: $ps_target"
             fi
         fi
     done
-    [ "$PS_FIX_COUNT" -gt 0 ] && success "ps format patched in \$PS_FIX_COUNT file(s)" || \
+    [ "$PS_FIX_COUNT" -gt 0 ] && success "ps format patched in $PS_FIX_COUNT file(s)" || \
         info "ps format already correct in all ViciDial scripts"
 
     # -----------------------------------------------------------------------
