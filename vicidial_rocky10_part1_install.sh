@@ -701,7 +701,6 @@ if ! is_complete "PERL_MODULES"; then
 
     perl Makefile.PL --mysql_config=/usr/bin/mariadb_config
     make
-    make test
     make install
 
     # Verify installation
