@@ -1,0 +1,4 @@
+*.credentials
+.vicidial_ultimate_credentials
+/root/.vicidial_*
+*.log
