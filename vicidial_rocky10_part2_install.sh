@@ -1388,6 +1388,33 @@ success "install.pl completed successfully"
 mark_step_complete "STEP_7"
 fi
 
+# ---------------------------------------------------------------------------
+# FIX: Copy ViciDial Perl modules into system Perl path (Rocky Linux 10 / Perl 5.40)
+# install.pl puts modules in /usr/share/astguiclient/libs/ but does NOT
+# add that path to system Perl @INC. Asterisk spawns AGI scripts without
+# PERL5LIB set, so use Asterisk::AGI fails silently — every AGI call drops
+# the call with no SET CONTEXT ever sent.
+# ---------------------------------------------------------------------------
+log "Installing ViciDial Perl modules into system Perl path..."
+if perl -e 'use Asterisk::AGI; print "ok"' 2>/dev/null | grep -q ok; then
+    success "Asterisk::AGI already in system Perl path"
+else
+    PERL_VER=$(perl -e 'printf "%vd", $^V' | cut -d. -f1,2)
+    PERL_DEST="/usr/local/share/perl5/${PERL_VER}"
+    if [ ! -d /usr/share/astguiclient/libs/Asterisk ]; then
+        warning "astguiclient libs not found - skipping Perl module copy (install.pl may not have run)"
+    else
+        mkdir -p "${PERL_DEST}/Asterisk"
+        cp -f /usr/share/astguiclient/libs/Asterisk/*.pm "${PERL_DEST}/Asterisk/"
+        cp -f /usr/share/astguiclient/libs/Asterisk.pm   "${PERL_DEST}/"
+        cp -f /usr/share/astguiclient/libs/viciagi.pm    "${PERL_DEST}/"
+        cp -f /usr/share/astguiclient/libs/vicidial.pm   "${PERL_DEST}/"
+        perl -e 'use Asterisk::AGI; print "ok"' 2>/dev/null | grep -q ok && \
+            success "Asterisk::AGI now in system Perl path (${PERL_DEST})" || \
+            warning "Asterisk::AGI copy completed but module still not loadable - check Perl version"
+    fi
+fi
+
 # ===========================================================================
 # STEP 7.5: PATCH ALL VICIDIAL SCRIPTS + AGI SCRIPTS (FIX #1 - CRITICAL)
 # ===========================================================================
