@@ -1390,12 +1390,13 @@ fi
 
 # ---------------------------------------------------------------------------
 # FIX: Copy ViciDial Perl modules into system Perl path (Rocky Linux 10 / Perl 5.40)
-# install.pl puts modules in /usr/share/astguiclient/libs/ but does NOT
-# add that path to system Perl @INC. Asterisk spawns AGI scripts without
-# PERL5LIB set, so use Asterisk::AGI fails silently — every AGI call drops
-# the call with no SET CONTEXT ever sent.
+# The sync script is installed later (before CLEANUP) and kept at
+# /usr/local/sbin/vicidial-sync-perl-modules so it can be re-run manually
+# after any ViciDial update. A systemd path unit auto-triggers it whenever
+# install.pl writes to /usr/share/astguiclient/libs/.
+# Run the sync now (inline, same logic) so STEP 7.5 and beyond are covered.
 # ---------------------------------------------------------------------------
-log "Installing ViciDial Perl modules into system Perl path..."
+log "Syncing ViciDial Perl modules into system Perl path..."
 if perl -e 'use Asterisk::AGI; print "ok"' 2>/dev/null | grep -q ok; then
     success "Asterisk::AGI already in system Perl path"
 else
@@ -2891,6 +2892,90 @@ CRON_COUNT=$(crontab -l | grep -c "astguiclient" || echo "0")
 success "Installed $CRON_COUNT ViciDial cron jobs"
 mark_step_complete "STEP_23"
 fi
+
+# ===========================================================================
+# PERL MODULE SYNC SCRIPT + SYSTEMD PATH UNIT (post-update automation)
+# Installs /usr/local/sbin/vicidial-sync-perl-modules and a systemd .path
+# unit so the copy is re-run automatically whenever install.pl updates
+# /usr/share/astguiclient/libs/ (e.g. during a ViciDial version upgrade).
+# Re-running the install script is also safe — all three pieces are idempotent.
+# ===========================================================================
+section "PERL MODULE SYNC SCRIPT + AUTO-UPDATE PATH UNIT"
+
+log "Installing /usr/local/sbin/vicidial-sync-perl-modules..."
+cat > /usr/local/sbin/vicidial-sync-perl-modules << 'SYNC_SCRIPT'
+#!/usr/bin/env bash
+# vicidial-sync-perl-modules
+# Copy ViciDial Perl modules from /usr/share/astguiclient/libs/ into the
+# system Perl path so Asterisk AGI subprocesses can load them without
+# PERL5LIB being set.
+#
+# Run manually after any ViciDial update:
+#   /usr/local/sbin/vicidial-sync-perl-modules
+#
+# Also triggered automatically by vicidial-perl-sync.path whenever
+# install.pl writes to /usr/share/astguiclient/libs/.
+
+set -euo pipefail
+
+LIBS_DIR="/usr/share/astguiclient/libs"
+PERL_VER=$(perl -e 'printf "%vd", $^V' | cut -d. -f1,2)
+PERL_DEST="/usr/local/share/perl5/${PERL_VER}"
+
+if [ ! -d "${LIBS_DIR}/Asterisk" ]; then
+    echo "ERROR: ${LIBS_DIR}/Asterisk not found — has install.pl run?" >&2
+    exit 1
+fi
+
+mkdir -p "${PERL_DEST}/Asterisk"
+cp -f "${LIBS_DIR}/Asterisk/"*.pm "${PERL_DEST}/Asterisk/"
+cp -f "${LIBS_DIR}/Asterisk.pm"   "${PERL_DEST}/"
+cp -f "${LIBS_DIR}/viciagi.pm"    "${PERL_DEST}/"
+cp -f "${LIBS_DIR}/vicidial.pm"   "${PERL_DEST}/"
+
+if perl -e 'use Asterisk::AGI; print "ok"' 2>/dev/null | grep -q ok; then
+    echo "OK: Asterisk::AGI loadable from system Perl path (${PERL_DEST})"
+else
+    echo "WARNING: modules copied but Asterisk::AGI still not loadable — check Perl version" >&2
+    exit 2
+fi
+SYNC_SCRIPT
+chmod 755 /usr/local/sbin/vicidial-sync-perl-modules
+success "Sync script installed at /usr/local/sbin/vicidial-sync-perl-modules"
+
+log "Installing vicidial-perl-sync systemd service + path unit..."
+cat > /etc/systemd/system/vicidial-perl-sync.service << 'SERVICE_UNIT'
+[Unit]
+Description=Sync ViciDial Perl modules into system Perl path
+After=network.target
+Documentation=https://github.com/FrancoSmash73/vicidial-rocky10
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vicidial-sync-perl-modules
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vicidial-perl-sync
+SERVICE_UNIT
+
+cat > /etc/systemd/system/vicidial-perl-sync.path << 'PATH_UNIT'
+[Unit]
+Description=Watch ViciDial astguiclient libs for changes (re-run Perl module sync)
+Documentation=https://github.com/FrancoSmash73/vicidial-rocky10
+
+[Path]
+# Fires when install.pl (or any process) closes a write to this directory.
+# Covers ViciDial version upgrades that update Asterisk::AGI, Manager.pm, etc.
+PathChanged=/usr/share/astguiclient/libs
+
+[Install]
+WantedBy=multi-user.target
+PATH_UNIT
+
+systemctl daemon-reload
+systemctl enable --now vicidial-perl-sync.path && \
+    success "vicidial-perl-sync.path enabled (auto-sync on ViciDial updates)" || \
+    warning "Failed to enable vicidial-perl-sync.path — re-run sync manually after updates"
 
 # ===========================================================================
 # CLEANUP (FIX #8)
