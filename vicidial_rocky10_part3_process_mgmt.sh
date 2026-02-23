@@ -654,6 +654,101 @@ chmod 1777 /run/screen 2>/dev/null || true
 success "/run/screen configured for correct permissions on every boot"
 
 # ---------------------------------------------------------------------------
+# STEP H: SERVER_UPDATER HEARTBEAT (DB-only servers without Asterisk)
+#
+# On a split install where Asterisk does NOT run on this server,
+# AST_update_AMI2.pl never reaches its main loop (it loops forever
+# waiting for the AMI connection) and therefore never writes to
+# server_updater.  The health page turns RED after 10 seconds.
+#
+# Fix: deploy a lightweight 5-second heartbeat that keeps
+# server_updater.last_update current, managed by systemd.
+#
+# On a standalone server (Asterisk active), this step is skipped --
+# AST_update_AMI2.pl handles it natively.
+# ---------------------------------------------------------------------------
+section "STEP H: SERVER_UPDATER HEARTBEAT (DB-only server check)"
+
+HEARTBEAT_SCRIPT="/usr/local/bin/vicidial_server_updater_heartbeat.sh"
+HEARTBEAT_SVC="vicidial-heartbeat.service"
+HEARTBEAT_DEPLOYED=0
+
+if systemctl is-active --quiet asterisk; then
+    info "Asterisk is active on this server - heartbeat not needed, skipping"
+else
+    log "Asterisk is NOT running on this server (DB/Web role detected)"
+    log "Deploying server_updater heartbeat to keep health page green..."
+
+    # Read connection details from astguiclient.conf
+    SERVER_IP=$(grep  '^VARserver_ip '  /etc/astguiclient.conf | awk '{print $3}')
+    DB_HOST=$(grep    '^VARDB_server '  /etc/astguiclient.conf | awk '{print $3}')
+    DB_USER=$(grep    '^VARDB_user '    /etc/astguiclient.conf | awk '{print $3}')
+    DB_PASS=$(grep    '^VARDB_pass '    /etc/astguiclient.conf | awk '{print $3}')
+    DB_NAME=$(grep    '^VARDB_database '/etc/astguiclient.conf | awk '{print $3}')
+
+    if [ -z "$SERVER_IP" ] || [ -z "$DB_HOST" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
+        warning "Could not read all DB credentials from /etc/astguiclient.conf - skipping heartbeat"
+    else
+        # Write the heartbeat script
+        cat > "$HEARTBEAT_SCRIPT" << HBEOF
+#!/bin/bash
+# ViciDial server_updater heartbeat - DB-only server (no Asterisk)
+# Updates server_updater.last_update every 5 seconds so the ViciDial
+# health page stays green (threshold: 10 seconds).
+# Managed by systemd vicidial-heartbeat.service
+
+DB_HOST="${DB_HOST}"
+DB_USER="${DB_USER}"
+DB_PASS="${DB_PASS}"
+DB_NAME="${DB_NAME}"
+SERVER_IP="${SERVER_IP}"
+
+while true; do
+    mysql -h "\$DB_HOST" -u "\$DB_USER" -p"\$DB_PASS" "\$DB_NAME" \
+        -e "UPDATE server_updater SET last_update=NOW() WHERE server_ip='\$SERVER_IP';" \
+        2>/dev/null
+    sleep 5
+done
+HBEOF
+        chmod +x "$HEARTBEAT_SCRIPT"
+        success "Heartbeat script written: $HEARTBEAT_SCRIPT"
+
+        # Write the systemd service
+        cat > /etc/systemd/system/$HEARTBEAT_SVC << SVCEOF
+[Unit]
+Description=ViciDial server_updater heartbeat (DB-only server)
+Documentation=file://${HEARTBEAT_SCRIPT}
+After=mariadb.service
+Requires=mariadb.service
+
+[Service]
+Type=simple
+ExecStart=${HEARTBEAT_SCRIPT}
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+        systemctl daemon-reload
+        systemctl enable "$HEARTBEAT_SVC"
+        systemctl stop  "$HEARTBEAT_SVC" 2>/dev/null || true
+        systemctl start "$HEARTBEAT_SVC"
+        sleep 2
+
+        if systemctl is-active --quiet "$HEARTBEAT_SVC"; then
+            success "vicidial-heartbeat.service is RUNNING"
+            HEARTBEAT_DEPLOYED=1
+        else
+            warning "vicidial-heartbeat.service failed to start"
+            journalctl -u "$HEARTBEAT_SVC" --no-pager -n 10 || true
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # STEP G: VERIFICATION
 # ---------------------------------------------------------------------------
 section "STEP G: FINAL VERIFICATION"
@@ -711,6 +806,18 @@ else
     WARNINGS=$((WARNINGS + 1))
 fi
 
+# Heartbeat service (only relevant on DB-only servers)
+if [ "$HEARTBEAT_DEPLOYED" -eq 1 ]; then
+    if systemctl is-active --quiet vicidial-heartbeat; then
+        success "✅ vicidial-heartbeat.service: RUNNING (DB-only server)"
+    else
+        warning "⚠️  vicidial-heartbeat.service: NOT RUNNING"
+        WARNINGS=$((WARNINGS + 1))
+    fi
+else
+    info "ℹ️  Heartbeat: not needed (Asterisk active or skipped)"
+fi
+
 # Completion
 END_TIME=$(date +%s)
 DURATION=$(( END_TIME - START_TIME ))
@@ -740,6 +847,11 @@ echo -e "  ${GREEN}Process Monitor :${NC} /usr/local/bin/vicidial_process_monito
 echo -e "  ${GREEN}Monitor Service :${NC} vicidial-process-monitor.service (systemd)"
 echo -e "  ${GREEN}Keepalive Timer :${NC} vicidial-keepalive.timer (every 60s)"
 echo -e "  ${GREEN}Crontab         :${NC} Migrated - keepalive removed, scripts wrapped"
+if [ "$HEARTBEAT_DEPLOYED" -eq 1 ]; then
+echo -e "  ${GREEN}Heartbeat       :${NC} vicidial-heartbeat.service (DB-only, 5s interval)"
+else
+echo -e "  ${CYAN}Heartbeat       :${NC} Skipped (Asterisk active on this server)"
+fi
 echo -e "  ${GREEN}Log File        :${NC} $LOG_FILE"
 echo -e "  ${GREEN}Run Time        :${NC} ${DURATION}s"
 echo ""
@@ -757,6 +869,12 @@ echo -e "  ${GREEN}tail -f /var/log/astguiclient/ADMIN_keepalive_ALL_wrapper.log
 echo ""
 echo -e "  To check timer health anytime:"
 echo -e "  ${CYAN}journalctl -u vicidial-keepalive.service -f${NC}"
+if [ "$HEARTBEAT_DEPLOYED" -eq 1 ]; then
+echo ""
+echo -e "  DB-only server heartbeat:"
+echo -e "  ${GREEN}systemctl status vicidial-heartbeat${NC}"
+echo -e "  ${GREEN}journalctl -u vicidial-heartbeat -f${NC}"
+fi
 echo ""
 
 exit 0
