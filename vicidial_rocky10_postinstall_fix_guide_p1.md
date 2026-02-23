@@ -271,6 +271,51 @@ After restart, zero `res_pjsip_*`, `func_pjsip_*`, `res_prometheus`, or `codec_d
 
 ---
 
+## FIX 6 — Unused Protocol Modules Opening Unnecessary UDP Ports
+
+### Symptom
+Three unexpected UDP ports open on a standalone ViciDial SIP+WebRTC install:
+
+```
+UNCONN  0.0.0.0:2727   asterisk   ← MGCP (Media Gateway Control Protocol)
+UNCONN  0.0.0.0:4520   asterisk   ← DUNDi (Distributed Universal Number Discovery)
+UNCONN  0.0.0.0:5000   asterisk   ← UNISTIM (Nortel/Avaya desk phones)
+```
+
+### Root Cause
+`autoload=yes` in `modules.conf` causes Asterisk to load every module it finds, including legacy protocol drivers that serve no purpose on a SIP+chan_sip standalone system:
+
+| Module | Protocol | Default Port | Used by ViciDial? |
+|--------|----------|-------------|-------------------|
+| `chan_mgcp.so` | MGCP | 2727/UDP | No — analog gateway protocol |
+| `chan_unistim.so` | UNISTIM | 5000/UDP | No — Nortel/Aastra IP phones only |
+| `pbx_dundi.so` | DUNDi | 4520/UDP | No — multi-server dial plan lookup only |
+
+### Fix — File: `/etc/asterisk/modules.conf`
+Add to the existing `noload` block alongside `chan_iax2.so` and `chan_skinny.so`:
+
+```
+noload => chan_mgcp.so
+noload => chan_unistim.so
+noload => pbx_dundi.so
+```
+
+To unload live without restarting Asterisk:
+```bash
+asterisk -rx "module unload chan_mgcp.so"
+asterisk -rx "module unload chan_unistim.so"
+asterisk -rx "module unload pbx_dundi.so"
+```
+> **Note:** The DUNDi module name in the running instance is `pbx_dundi.so` (not `res_dundi.so`).
+
+### Verification
+```bash
+ss -ulnp | grep asterisk
+# Expected: only 0.0.0.0:5060 (SIP)
+```
+
+---
+
 ## Post-Fix System State
 
 | Component | Status |
@@ -287,6 +332,7 @@ After restart, zero `res_pjsip_*`, `func_pjsip_*`, `res_prometheus`, or `codec_d
 | Process monitor | `vicidial-process-monitor` active |
 | Cron workers | flock-wrapped `VDauto_dial`, `send_listen`, `VDadapt` |
 | Firewall SIP | `5060/udp` open |
+| Asterisk UDP (unused protocols) | Ports 2727/4520/5000 closed — `chan_mgcp`, `chan_unistim`, `pbx_dundi` noloaded |
 | Firewall RTP | `9000-35000/udp` open (matches `rtp.conf`) |
 | MariaDB | Active, 400 max connections, 3GB InnoDB pool |
 | Apache/PHP 8.3 | Active, `/agc/vicidial.php` → HTTP 200 |
@@ -316,7 +362,7 @@ These entries appear at every Asterisk startup and are **harmless** — they ref
 | File | Change |
 |------|--------|
 | `/root/STEP_23_Process_Management.sh` | Fixed `pgrep\|wc -l` pipefail bug + `((VAR++))` arithmetic bug |
-| `/etc/asterisk/modules.conf` | Added 50+ `noload` entries for pjsip sub-modules, func_pjsip, prometheus, codec_dahdi |
+| `/etc/asterisk/modules.conf` | Added 50+ `noload` entries for pjsip sub-modules, func_pjsip, prometheus, codec_dahdi; added `noload` for unused protocol drivers: `chan_mgcp`, `chan_unistim`, `pbx_dundi` |
 | `/etc/asterisk/sip-vicidial.conf` | Auto-regenerated correctly after DB fix (do not edit manually) |
 
 ## Key Database Changes
