@@ -749,6 +749,27 @@ SVCEOF
 fi
 
 # ---------------------------------------------------------------------------
+# STEP G1: MASK asterisk.service (FIX 12)
+#   ViciDial manages Asterisk via GNU screen sessions.  The systemd
+#   asterisk.service must be masked (not just disabled) to prevent it from
+#   starting a second Asterisk instance that fights over UDP 5060.
+#   This step is idempotent: re-running is safe.
+# ---------------------------------------------------------------------------
+section "STEP G1: MASK asterisk.service (prevents dual-instance)"
+
+log "Checking asterisk.service state..."
+if [ -L /etc/systemd/system/asterisk.service ] && \
+   [ "$(readlink /etc/systemd/system/asterisk.service 2>/dev/null)" = "/dev/null" ]; then
+    success "asterisk.service already masked"
+else
+    systemctl stop asterisk 2>/dev/null || true
+    \rm -f /etc/systemd/system/asterisk.service 2>/dev/null || true
+    ln -sf /dev/null /etc/systemd/system/asterisk.service
+    systemctl daemon-reload
+    success "asterisk.service masked (→ /dev/null)"
+fi
+
+# ---------------------------------------------------------------------------
 # STEP G: VERIFICATION
 # ---------------------------------------------------------------------------
 section "STEP G: FINAL VERIFICATION"

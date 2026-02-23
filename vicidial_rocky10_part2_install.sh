@@ -1021,40 +1021,19 @@ log "Installing init scripts..."
 if command -v systemctl &>/dev/null; then
     log "Detected systemd - installing systemd service..."
     
-    # Create systemd service file if it doesn't exist
-    if [ ! -f /etc/systemd/system/asterisk.service ]; then
-        cat > /etc/systemd/system/asterisk.service <<'EOF'
-[Unit]
-Description=Asterisk PBX
-After=network.target
-
-[Service]
-Type=simple
-User=asterisk
-Group=asterisk
-ExecStart=/usr/sbin/asterisk -f -C /etc/asterisk/asterisk.conf
-ExecStop=/usr/sbin/asterisk -rx 'core stop now'
-ExecReload=/usr/sbin/asterisk -rx 'core reload'
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-        systemctl daemon-reload
-        
-        # Enable the service (ignore SysV compatibility errors)
-        systemctl enable asterisk 2>/dev/null || {
-            # If enable fails due to SysV issues, force it
-            log "Standard enable failed, forcing systemd service..."
-            rm -f /etc/init.d/asterisk 2>/dev/null
-            systemctl daemon-reload
-            systemctl enable asterisk || warning "Could not enable asterisk service automatically"
-        }
-        
-        log "Systemd service created and enabled"
+    # ViciDial manages Asterisk via GNU screen -- do NOT enable the systemd service.
+    # Mask it to permanently prevent dual-instance conflicts (FIX 12).
+    # Using a symlink test: -f returns false for a symlink-to-/dev/null, so we
+    # use -L + readlink to detect an already-masked state idempotently.
+    log "Masking asterisk.service (ViciDial uses screen-managed Asterisk)..."
+    if [ -L /etc/systemd/system/asterisk.service ] && \
+       [ "$(readlink /etc/systemd/system/asterisk.service 2>/dev/null)" = "/dev/null" ]; then
+        log "asterisk.service already masked"
     else
-        log "Asterisk service file already exists"
+        \rm -f /etc/systemd/system/asterisk.service 2>/dev/null || true
+        ln -sf /dev/null /etc/systemd/system/asterisk.service
+        systemctl daemon-reload
+        success "asterisk.service masked (→ /dev/null, prevents dual-instance)"
     fi
 else
     log "Attempting traditional init setup..."
@@ -2236,6 +2215,14 @@ log "Stopping any existing Asterisk processes..."
 # Stop systemd service if running (we don't use it for ViciDial)
 systemctl stop asterisk 2>/dev/null || true
 systemctl disable asterisk 2>/dev/null || true
+# Mask to hard-block any auto-start (FIX 12: disable alone is not sufficient)
+if [ ! -L /etc/systemd/system/asterisk.service ] || \
+   [ "$(readlink /etc/systemd/system/asterisk.service 2>/dev/null)" != "/dev/null" ]; then
+    \rm -f /etc/systemd/system/asterisk.service 2>/dev/null || true
+    ln -sf /dev/null /etc/systemd/system/asterisk.service
+    systemctl daemon-reload
+fi
+success "asterisk.service masked (prevents dual-instance conflict)"
 
 # Kill any existing Asterisk processes and screen sessions
 killall -9 asterisk 2>/dev/null || true
@@ -2264,6 +2251,13 @@ mkdir -p /run/screen
 chmod 777 /run/screen
 chmod +t /run/screen  # Sticky bit - prevents users from deleting others' sessions
 success "Screen directory configured: /run/screen (mode 1777)"
+# FIX: screen 5.0.1 on Rocky Linux 10 requires mode 1777.
+# tmpfiles.d resets /run/screen to 0775 on every boot unless overridden here.
+cat > /etc/tmpfiles.d/screen-fix.conf << 'TMPFILES_EOF'
+# screen 5.0.1 on Rocky Linux 10 requires 1777 (not 0775 set by package default)
+d /run/screen 1777 root root
+TMPFILES_EOF
+success "tmpfiles.d override written: /run/screen will be 1777 on each boot"
 
 log "Starting Asterisk using ViciDial's native screen-based method..."
 info "NOTE: ViciDial requires Asterisk to run in a GNU screen session"
