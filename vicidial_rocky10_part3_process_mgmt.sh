@@ -616,22 +616,26 @@ for target_file in \
 
     COUNT=$(grep -cF '/bin/ps -o "%p %a" --no-headers -A' "$target_file" 2>/dev/null || echo 0)
     if [ "$COUNT" -gt 0 ]; then
-        # Use Python to avoid sed quoting issues with backticks + double-quotes
-        python3 -c "
-fn = open('/dev/stdin').read().strip()
+        # Write fix to a temp script to avoid quoting/heredoc issues over SSH
+        cat > /tmp/_vicidial_ps_fix.py << 'PYEOF'
+import sys
+fn = sys.argv[1]
+OLD = '/bin/ps -o "%p %a" --no-headers -A'
+NEW = '/bin/ps -o "pid,args" --no-headers -A'
 with open(fn, 'r') as f: c = f.read()
-old = '/bin/ps -o "%p %a" --no-headers -A'
-new = '/bin/ps -o "pid,args" --no-headers -A'
-n = c.count(old)
-with open(fn, 'w') as f: f.write(c.replace(old, new))
-print(f'Fixed {n} location(s) in ' + fn)
-" <<< "$target_file"
+n = c.count(OLD)
+with open(fn, 'w') as f: f.write(c.replace(OLD, NEW))
+print(f'Fixed {n} location(s) in {fn}')
+PYEOF
+        python3 /tmp/_vicidial_ps_fix.py "$target_file"
         PS_FIX_APPLIED=$((PS_FIX_APPLIED + 1))
     else
         info "$(basename $target_file): already patched or pattern not found"
         PS_FIX_SKIPPED=$((PS_FIX_SKIPPED + 1))
     fi
 done
+
+rm -f /tmp/_vicidial_ps_fix.py
 
 if [ "$PS_FIX_APPLIED" -gt 0 ]; then
     success "ps format patched in $PS_FIX_APPLIED file(s)"
