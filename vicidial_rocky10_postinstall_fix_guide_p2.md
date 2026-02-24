@@ -112,7 +112,7 @@ After installing, both `ASTupdate` and `ASTlisten` start and remain alive in the
 
 ## FIX 7 — `ps -o "%p %a"` Path Truncation (procps-ng 4.0.4 on Rocky Linux 10)
 
-### Symptom — Three separate cascading failures all from one root cause
+### Symptom — Four separate cascading failures all from one root cause
 
 **Failure A — Keepalive always sees zero running daemons**
 `ADMIN_keepalive_ALL.pl` uses `ps` to check which screen-session daemons are currently running.
@@ -126,6 +126,11 @@ was always invisible.
 
 **Failure C — ASTVDremote exits immediately ("PROCESS KILLED NO LISTENER RUNNING")**
 `AST_VDremote_agents.pl` has the same listener check. Same truncation, same immediate exit.
+
+**Failure D — ASTVDauto exits immediately ("PROCESS KILLED NO LISTENER RUNNING")**
+`AST_VDauto_dial.pl` performs the same listener check every 10 loop iterations (line 5249).
+Same truncation bug, same immediate exit — so the auto-dialer engine was impossible to keep
+alive even when campaigns were active and agents were logged in.
 
 ### Root Cause — procps-ng 4.x `%a` column-width behaviour
 
@@ -209,9 +214,33 @@ One occurrence at line **620**:
 @psoutput = `/bin/ps -o "pid,args" --no-headers -A`;
 ```
 
+#### File 4: `/usr/share/astguiclient/AST_VDauto_dial.pl`
+One occurrence at line **5249** (the original `-f` format was already commented out; this line
+was subsequently changed to `%p %a` and then needed the same `pid,args` fix):
+```perl
+# BEFORE:
+@psoutput = `/bin/ps -o "%p %a" --no-headers -A`;
+
+# AFTER:
+@psoutput = `/bin/ps -o "pid,args" --no-headers -A`;
+```
+
+Applied using Python:
+```python
+with open('/usr/share/astguiclient/AST_VDauto_dial.pl', 'r') as f:
+    content = f.read()
+old = '/bin/ps -o "%p %a" --no-headers -A'
+new = '/bin/ps -o "pid,args" --no-headers -A'
+content_new = content.replace(old, new)
+print(f"Replaced {content.count(old)} occurrence(s)")
+with open('/usr/share/astguiclient/AST_VDauto_dial.pl', 'w') as f:
+    f.write(content_new)
+# Output: Replaced 1 occurrence(s)
+```
+
 ### Verification
 ```bash
-# Confirm fix is in place in all three files:
+# Confirm fix is in place in all four files:
 grep -n 'ps -o' /usr/share/astguiclient/ADMIN_keepalive_ALL.pl | grep -c 'pid,args'
 # Output: 3
 
@@ -219,6 +248,9 @@ grep -n 'ps -o' /usr/share/astguiclient/AST_manager_send.pl | grep -c 'pid,args'
 # Output: 1
 
 grep -n 'ps -o' /usr/share/astguiclient/AST_VDremote_agents.pl | grep -c 'pid,args'
+# Output: 1
+
+grep -n 'ps -o' /usr/share/astguiclient/AST_VDauto_dial.pl | grep -c 'pid,args'
 # Output: 1
 
 # Confirm ps produces full paths:
@@ -516,6 +548,7 @@ for actual runaway cron scripts.
 | `/usr/share/astguiclient/ADMIN_keepalive_ALL.pl` | 3x `ps -o "%p %a"` → `ps -o "pid,args"` (lines 705, 819, 886) |
 | `/usr/share/astguiclient/AST_manager_send.pl` | Restored from source + 1x ps fix (line 316) |
 | `/usr/share/astguiclient/AST_VDremote_agents.pl` | 1x `ps -o "%p %a"` → `ps -o "pid,args"` (line 620) |
+| `/usr/share/astguiclient/AST_VDauto_dial.pl` | 1x `ps -o "%p %a"` → `ps -o "pid,args"` (line 5249) |
 | `/usr/local/bin/vicidial_process_monitor.sh` | pgrep fix (perl.*script); MAX_RUNTIME pruned |
 | `/root` crontab (root user) | Complete rewrite — removed phantom/wrong scripts, added standard ViciDial cron jobs |
 
