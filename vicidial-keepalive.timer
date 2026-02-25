@@ -1,0 +1,16 @@
+[Unit]
+Description=ViciDial Keepalive Timer (every 60 seconds)
+Documentation=man:systemd.timer(5)
+
+[Timer]
+# Delay first run to allow system to settle after boot
+OnBootSec=2min
+# Subsequent runs: 60 seconds after the previous run ACTIVATED
+OnUnitInactiveSec=1min
+# Tight accuracy - don't batch/delay
+AccuracySec=1s
+# Don't try to catch up missed runs after downtime
+Persistent=false
+
+[Install]
+WantedBy=timers.target
