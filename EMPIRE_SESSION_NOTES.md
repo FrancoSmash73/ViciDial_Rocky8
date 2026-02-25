@@ -1,5 +1,5 @@
 # EMPIRE IVR — Session Notes
-**Last updated:** 2026-02-25 (afternoon)
+**Last updated:** 2026-02-25 (evening)
 **Status: FULLY WORKING ✅**
 
 ---
@@ -172,6 +172,9 @@ closer_campaigns = ' EMPIRE -'
 | `/var/lib/asterisk/agi-bin/empire_verify_ssn_vicidial.agi` | Deployed verify AGI |
 | `/var/lib/asterisk/agi-bin/agi-VDAD_ALL_inbound.agi` | **Patched** — DBI:MariaDB (backup: .agi.bak) |
 | `/etc/astguiclient.conf` | ViciDial config (DB creds, server IP) |
+| `/root/generate_empire_names.py` | TTS name generation script (PyMySQL, 10 workers) |
+| `/var/lib/asterisk/sounds/custom/*.wav` | 5276 generated name audio files |
+| `/root/empire_tts_generation.log` | TTS generation log |
 
 ---
 
@@ -193,6 +196,37 @@ Changes pushed to `github.com/FrancoSmash73/vicidial-rocky10` — commit `3fc1f8
 
 ### All files
 - Replaced `Striker24x7` author references with `FrancoSmash73` throughout
+
+---
+
+## TTS Audio Name Files (2026-02-25)
+
+**Status: ✅ COMPLETE — 5276/5276 files generated**
+
+### Generation Details
+- **Script:** `/root/generate_empire_names.py` on Server 2
+- **Method:** Google Translate TTS → MP3 → sox → 8kHz mono PCM WAV
+- **Output dir:** `/var/lib/asterisk/sounds/custom/`
+- **File naming:** `{lead_id}.wav` (e.g. `65414.wav` for ANITA MENA)
+- **Total size:** 146 MB
+- **Lead ID range:** 65409–70684
+- **Rate:** ~1395 files/min (10 parallel workers)
+- **Failed:** 0 | **Skipped:** 0
+
+### How IVR Uses These Files
+Dialplan in `/etc/asterisk/extensions-empire-ivr.conf`:
+```
+same => n,ExecIf($[${STAT(e,/var/lib/asterisk/sounds/custom/${CUSTOMER_ID}.wav)}]?Background(custom/${CUSTOMER_ID}))
+```
+`CUSTOMER_ID` is set to `lead_id` by `empire_lookup_vicidial.agi` after case number lookup.
+
+### Re-running / Adding New Leads
+Script is resume-safe (skips existing files). To generate for new leads only:
+```bash
+screen -S EMPIREtts
+python3 /root/generate_empire_names.py
+```
+Log: `/root/empire_tts_generation.log`
 
 ---
 
