@@ -370,29 +370,31 @@ fi
 # FIX #1: CONSOLIDATED CREDENTIAL LOADING FROM PART 1
 # ---------------------------------------------------------------------------
 PART1_MARKER="/root/.vicidial_part1_progress"
+CREDS_FILE="/root/.vicidial_ultimate_credentials"
+
 if [ ! -f "$PART1_MARKER" ]; then
-error "Part 1 marker not found at $PART1_MARKER - run Part 1 first!"
+    error "Part 1 marker not found at $PART1_MARKER - run Part 1 first!"
+fi
+if [ ! -f "$CREDS_FILE" ]; then
+    error "Credentials file not found at $CREDS_FILE - run Part 1 first!"
 fi
 
 log "Loading database credentials from Part 1..."
-MYSQL_ROOT_PASSWORD=$(grep "^DB_ROOT_PASSWORD=" "$PART1_MARKER" | cut -d'=' -f2-)
-DB_PASSWORD=$(grep "^DB_PASSWORD=" "$PART1_MARKER" | cut -d'=' -f2-)
-CUSTOM_DB_PASSWORD=$(grep "^CUSTOM_DB_PASSWORD=" "$PART1_MARKER" | cut -d'=' -f2-)
+MYSQL_ROOT_PASSWORD=$(grep "^MYSQL_ROOT_PASSWORD=" "$CREDS_FILE" | cut -d'=' -f2-)
+DB_PASSWORD=$(grep "^DB_PASSWORD=" "$CREDS_FILE" | cut -d'=' -f2-)
+CUSTOM_DB_PASSWORD=$(grep "^CUSTOM_DB_PASSWORD=" "$CREDS_FILE" | cut -d'=' -f2-)
 
 if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ -z "$DB_PASSWORD" ]; then
-    error "Required passwords not found in $PART1_MARKER"
+    error "Required passwords not found in $CREDS_FILE"
 fi
-
 if [ -z "$CUSTOM_DB_PASSWORD" ]; then
     warning "CUSTOM_DB_PASSWORD not set - using DB_PASSWORD as fallback"
     CUSTOM_DB_PASSWORD="$DB_PASSWORD"
 fi
-
 # FIX #1: Set standard variable names used throughout script
 DB_USER="cron"
 DB_NAME="asterisk"
 DB_PASS="$DB_PASSWORD"
-
 success "Database credentials loaded"
 info "DB user: $DB_USER | DB name: $DB_NAME"
 
