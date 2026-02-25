@@ -1,16 +1,23 @@
 #!/bin/bash
 ################################################################################
-# VICIDIAL ULTIMATE INSTALLATION - PART 2: v11.1
+# VICIDIAL ULTIMATE INSTALLATION - PART 2: v11.2
 # VoIP Stack: DAHDI 3.4.0, LibPRI 1.6.1, Asterisk 18 (ViciDial-patched)
 # ViciDial + ConfBridge + CRITICAL Process Management
 ################################################################################
 # Date: 2026-02-16
-# Updated: 2026-02-18
-# Author: Striker24x7 + Claude (Anthropic)
+# Updated: 2026-02-25
+# Author: FrancoSmash73 + Claude (Anthropic)
 # Target: Rocky Linux 10.x / AlmaLinux 10.x
 # Asterisk: 18.21.0-vici (from download.vicidial.com) with fallback to
 #           plain 18.26.4 + manual ViciDial patches from asterisk.org
 # DAHDI: 3.4.0 (Patched Linux + Patched Tools from FrancoSmash73)
+#
+# NEW IN v11.2 (2026-02-25):
+# ✅ FIX: Final safety-net DBI:MariaDB re-patch added at end of installer
+#         Ensures agi-VDAD_ALL_inbound.agi and all AGI scripts retain
+#         DBI:MariaDB after any step that redeploys files (e.g. install.pl
+#         re-run). Without this, all ViciDial inbound routing silently breaks
+#         on Rocky Linux 10 where DBD::mysql is not available.
 #
 # NEW IN v11.1 (2026-02-18):
 # ✅ FIX: AST_VDauto_dial_FILL.pl MAX_RUNTIME 180 → 600s (was killed before hopper filled)
@@ -328,7 +335,7 @@ log "Step ${STEP_KEY} marked complete."
 # ---------------------------------------------------------------------------
 # INITIALIZATION
 # ---------------------------------------------------------------------------
-section "INITIALIZING VICIDIAL ULTIMATE PART 2 INSTALLATION v11.0 FINAL"
+section "INITIALIZING VICIDIAL ULTIMATE PART 2 INSTALLATION v11.2"
 
 VERSION="11.0"
 INSTALL_MARKER="/root/.vicidial_part2_progress"
@@ -3124,7 +3131,7 @@ echo ""
 echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║                                                       ║${NC}"
 echo -e "${GREEN}║  PART 2 INSTALLATION COMPLETED SUCCESSFULLY           ║${NC}"
-echo -e "${GREEN}║  ViciDial ULTIMATE v11.0 FINAL                        ║${NC}"
+echo -e "${GREEN}║  ViciDial ULTIMATE v11.2                        ║${NC}"
 echo -e "${GREEN}║                                                       ║${NC}"
 echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -3134,7 +3141,7 @@ info "  DAHDI Linux 3.4.0     : Installed (FrancoSmash73 - kernel 6.12 patched)"
 info "  DAHDI Tools 3.4.0     : Installed (FrancoSmash73 - autotools patched)"
 info "  LibPRI 1.6.1          : Installed"
 info "  Asterisk 18 (vici)    : Running (ViciDial-patched)"
-info "  ViciDial              : Installed (Striker24x7 method)"
+info "  ViciDial              : Installed (FrancoSmash73 method)"
 info "  DB Schema             : Pre-loaded before install.pl"
 info "  ConfBridge            : Configured (all 9 profiles)"
 info "  Extensions            : All prefixes 9600XXX-99600XXX"
@@ -3284,10 +3291,54 @@ echo "  DAHDI Linux  : https://github.com/FrancoSmash73/dahdi-linux-3.4.0"
 echo "  DAHDI Tools  : https://github.com/FrancoSmash73/dahdi-tools-3.4.0"
 echo ""
 
+# ===========================================================================
+# FINAL SAFETY NET: RE-APPLY DBI:MariaDB PATCH TO ALL AGI SCRIPTS
+# Runs last so any step that redeployed files (e.g. manual install.pl re-run)
+# cannot leave DBI:mysql in place. Inbound routing WILL NOT WORK without this.
+# ===========================================================================
+section "FINAL: MARIADB DRIVER PATCH (SAFETY NET)"
+log "Re-applying DBI:MariaDB patch to all AGI scripts as final safety net..."
+
+for _AGI_DIR in /var/lib/asterisk/agi-bin /usr/share/astguiclient; do
+    if [ -d "$_AGI_DIR" ]; then
+        _PATCHED=0
+        while IFS= read -r -d '' _F; do
+            if grep -q 'DBI:mysql:\|DBI:mariadb:\|DBD::mysql' "$_F" 2>/dev/null; then
+                sed -i \
+                    -e 's/DBI:mysql:/DBI:MariaDB:/g' \
+                    -e 's/DBI:mariadb:/DBI:MariaDB:/g' \
+                    -e 's/DBD::mysql/DBD::MariaDB/g' \
+                    -e 's/mysql_insertid/mariadb_insertid/g' \
+                    "$_F"
+                _PATCHED=$((_PATCHED + 1))
+            fi
+        done < <(find "$_AGI_DIR" -maxdepth 1 -type f \( -name "*.agi" -o -name "*.pl" \) -print0 2>/dev/null)
+        if [ "$_PATCHED" -gt 0 ]; then
+            warning "$_AGI_DIR: $_PATCHED file(s) still had DBI:mysql — patched now"
+        else
+            success "$_AGI_DIR: all files already using DBI:MariaDB"
+        fi
+    fi
+done
+
+# Explicit critical-file verification
+for _CRITICAL in \
+    /var/lib/asterisk/agi-bin/agi-VDAD_ALL_inbound.agi \
+    /var/lib/asterisk/agi-bin/agi-VDAD_ALL_outbound.agi \
+    /var/lib/asterisk/agi-bin/agi-VDAD_local_optimize.agi; do
+    if [ -f "$_CRITICAL" ]; then
+        if grep -q 'DBI:mysql:' "$_CRITICAL"; then
+            error "$(basename $_CRITICAL) STILL contains DBI:mysql: — manual intervention required"
+        else
+            success "$(basename $_CRITICAL): DBI:MariaDB confirmed"
+        fi
+    fi
+done
+
 success "Installation complete! Ready to use."
 echo ""
 echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ViciDial ULTIMATE v11.0 FINAL - Install Complete    ║${NC}"
+echo -e "${GREEN}║  ViciDial ULTIMATE v11.2 - Install Complete    ║${NC}"
 echo -e "${GREEN}║  Rocky Linux / AlmaLinux 10.x - VoIP-Only Ready!    ║${NC}"
 echo -e "${GREEN}║  ⭐ ZERO duplicate processes guaranteed              ║${NC}"
 echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"

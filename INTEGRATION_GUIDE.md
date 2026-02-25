@@ -3,7 +3,7 @@
 
 **Version:** 1.0  
 **Date:** February 16, 2026  
-**Author:** Striker24x7 + Claude (Anthropic)  
+**Author:** FrancoSmash73 + Claude (Anthropic)  
 **Target:** Rocky Linux 10.x / AlmaLinux 10.x
 
 ---

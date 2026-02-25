@@ -6,7 +6,7 @@
 # Version:  2.1
 # Created:  2026-02-16
 # Updated:  2026-02-18
-# Author:   Striker24x7 + Claude (Anthropic)
+# Author:   FrancoSmash73 + Claude (Anthropic)
 # Target:   Rocky Linux 10.x / AlmaLinux 10.x
 #
 # PURPOSE:

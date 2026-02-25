@@ -1,10 +1,10 @@
 !/bin/bash
 ################################################################################
-# ViciDial ULTIMATE Installation - Part 1 v1.1
+# ViciDial ULTIMATE Installation - Part 1 v1.3
 # Foundation: Dependencies, Database, Web Server, Perl Modules
-# 
+#
 # Created: February 16, 2026
-# Updated: February 17, 2026
+# Updated: 2026-02-25
 # Author: Frank Mac + Claude (Anthropic)
 # Target: Rocky Linux 10.x / AlmaLinux 10.x
 #
@@ -18,7 +18,13 @@
 # ✅ Complete verification suite
 # ✅ NO sketchy downloads or untrusted sources
 #
-# CHANGELOG v1.1:
+# CHANGELOG v1.3 (2026-02-25):
+# ✅ Version sync with Part 2 v11.2 release
+# ✅ Fixed header version mismatch (header said v1.1, code was v1.2)
+# ℹ️  No AGI/DBI changes needed in Part 1 — Part 1 runs on Server 1 (DB/Web)
+#    DBI:MariaDB safety-net patch lives in Part 2 (Asterisk server)
+#
+# CHANGELOG v1.1 (2026-02-17):
 # ✅ Fixed MariaDB installation (use native Rocky packages)
 # ✅ Fixed MariaDB root password setting on fresh install
 # ✅ Fixed bash arithmetic for buffer calculation (no bc required)
@@ -54,7 +60,7 @@ handle_error() {
 # CONFIGURATION
 ################################################################################
 
-VERSION="1.2"
+VERSION="1.3"
 SCRIPT_NAME="ViciDial ULTIMATE Part 1"
 START_TIME=$(date +%s)
 
