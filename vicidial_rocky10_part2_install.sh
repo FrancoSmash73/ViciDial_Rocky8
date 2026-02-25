@@ -415,7 +415,7 @@ success "Initialization complete - resuming installation"
 INSTALL_DIR="/usr/src"
 
 # Ensure required tools are available
-for tool in svn patch wget curl perl git; do
+for tool in svn patch wget curl perl git screen; do
 if ! command -v "$tool" &>/dev/null; then
 log "Installing missing tool: $tool"
 dnf install -y "$tool" || error "Failed to install $tool"
@@ -3011,7 +3011,7 @@ ERRORS=0
 WARNINGS=0
 
 # Check critical services
-services=("mariadb" "httpd" "asterisk")
+services=("mariadb" "httpd")
 for svc in "${services[@]}"; do
 if ! systemctl is-active --quiet "$svc"; then
 echo -e "${RED}[FAIL] CRITICAL: $svc is not running!${NC}"
@@ -3020,6 +3020,16 @@ else
 success "$svc is running"
 fi
 done
+
+# Check Asterisk separately - runs in screen session, not systemd
+if screen -list 2>/dev/null | grep -q "asterisk"; then
+    success "asterisk is running (screen session)"
+elif pgrep -x "asterisk" > /dev/null 2>&1; then
+    success "asterisk is running (process detected)"
+else
+    warning "Asterisk screen session not detected - ViciDial keepalive will start it"
+    WARNINGS=$((WARNINGS + 1))
+fi
 
 # Check process locking infrastructure
 if systemctl is-active --quiet vicidial-process-monitor; then
@@ -3196,7 +3206,7 @@ echo -e "  ${BOLD}3. Verify confbridge-vicidial.conf mixing_interval:${NC}"
 echo -e "     ${YELLOW}grep mixing_interval /etc/asterisk/confbridge-vicidial.conf${NC}"
 echo ""
 echo -e "  ${BOLD}4. Verify ConfBridge conferences in DB:${NC}"
-echo -e "     ${YELLOW}mysql -u cron -p asterisk -e \"SELECT COUNT(*) FROM vicidial_confbridges WHERE server_ip='$SERVER_IP';\"${     NC}"
+echo -e "     ${YELLOW}mysql -u cron -p asterisk -e \"SELECT COUNT(*) FROM vicidial_confbridges WHERE server_ip='$SERVER_IP';\"${NC}"
 echo ""
 
 echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
