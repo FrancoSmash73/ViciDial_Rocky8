@@ -673,7 +673,7 @@ HEARTBEAT_SCRIPT="/usr/local/bin/vicidial_server_updater_heartbeat.sh"
 HEARTBEAT_SVC="vicidial-heartbeat.service"
 HEARTBEAT_DEPLOYED=0
 
-if systemctl is-active --quiet asterisk; then
+if screen -list 2/dev/null | grep -q "asterisk" || pgrep -x "asterisk" > /dev/null 2>&1; then
     info "Asterisk is active on this server - heartbeat not needed, skipping"
 else
     log "Asterisk is NOT running on this server (DB/Web role detected)"
