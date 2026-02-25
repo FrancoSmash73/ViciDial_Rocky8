@@ -1181,6 +1181,27 @@ mysql --force -u root -p"${MYSQL_ROOT_PASSWORD}" asterisk \
 < /usr/src/astguiclient/trunk/extras/first_server_install.sql 2>&1 | grep -v "ERROR 1062" || true
 success "First server config loaded (duplicate rows skipped safely)"
 
+log "Creating vicidial_settings table (not included in any .sql file - created by install.pl normally)..."
+if ! mysql -u root -p"${MYSQL_ROOT_PASSWORD}" asterisk <<VSET
+CREATE TABLE IF NOT EXISTS vicidial_settings (
+  active                enum('Y','N') default 'Y',
+  active_keepalives     enum('Y','N') default 'Y',
+  server_ip             varchar(15) default '',
+  asterisk_version      varchar(10) default '1.8',
+  db_schema_version     int(8) unsigned default 0,
+  install_date          varchar(50) default ''
+);
+INSERT IGNORE INTO vicidial_settings
+  (active, active_keepalives, server_ip, asterisk_version, db_schema_version, install_date)
+SELECT 'Y', 'Y', server_ip, '1 18', 1736, NOW()
+FROM servers LIMIT 1;
+VSET
+then
+  warning "vicidial_settings creation had errors (may already exist)"
+else
+  success "vicidial_settings table created and seeded"
+fi
+
 log "Applying database tuning..."
 if ! mysql -u root -p"${MYSQL_ROOT_PASSWORD}" asterisk <<EOF
 -- Fix phones table default (prevents install.pl schema mismatch)
