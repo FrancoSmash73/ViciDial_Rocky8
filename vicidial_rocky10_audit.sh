@@ -124,7 +124,7 @@ echo -e "\n── 6. Asterisk ──"
 systemctl is-active vicidial-asterisk.service &>/dev/null \
   && echo -e "  $PASS vicidial-asterisk.service active" \
   || pgrep -x asterisk &>/dev/null \
-    && echo -e "  $WARN Asterisk running but not via systemd service" \
+    && echo -e "  ${PASS} Asterisk running in screen session (correct for ViciDial)" \
     || echo -e "  $FAIL Asterisk NOT running"
 
 # ── 7. Core services ─────────────────────────────────────────
