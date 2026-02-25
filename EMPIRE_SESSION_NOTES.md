@@ -4,6 +4,40 @@
 
 ---
 
+## Standalone Server (172.236.243.149)
+
+**Purpose:** Outbound dialing only (eventually a simpler IVR — not EMPIRE)
+**OS:** Rocky Linux 10.1 (Red Quartz)
+**SSH:** `ssh -p 1951 root@172.236.243.149`
+**DB user:** `cron` / `O8wF0zxfPtWLipZ1zwj33fo2`
+**DB root:** `TQE2lafarwZBk8oF2MEao3mx`
+
+### Verified 2026-02-25
+| Check | Status |
+|---|---|
+| `DBI:mysql` in `agi-VDAD_ALL_inbound.agi` | ✅ 0 — already patched |
+| Asterisk | ✅ 18.21.0-vici running |
+| Web server (httpd) | ✅ Active |
+| Systemd keepalive timer | ✅ Active (every 60s) |
+| Crontab | ✅ Full ViciDial crontab in place |
+| `ASTVDauto` | ✅ Running (was missing — started via `ADMIN_keepalive_ALL.pl`) |
+| `ASTVDadapt` | ✅ Running (was missing — started via `ADMIN_keepalive_ALL.pl`) |
+| `ASTVDremote` | ✅ Running |
+| `ASTemail` | ✅ Running |
+
+### Active Campaigns
+| Campaign | Type |
+|---|---|
+| `TEST1` | MANUAL |
+| `CALI` | RATIO |
+
+### Notes
+- EMPIRE IVR **not** deployed here — standalone is outbound only
+- A simpler IVR will be added in a future session
+- Server 1 SSH key added to standalone `~/.ssh/authorized_keys` (keyless access working)
+
+---
+
 ## Architecture
 
 ### Cluster (EMPIRE IVR)
