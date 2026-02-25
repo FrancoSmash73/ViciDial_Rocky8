@@ -324,47 +324,42 @@ echo "MARIADB_BIND_IP=$MARIADB_BIND_IP" >> "$INSTALL_MARKER"
 ################################################################################
 # PASSWORD GENERATION
 ################################################################################
-
 section "CREDENTIAL GENERATION"
-
 # Generate secure passwords
 MYSQL_ROOT_PASSWORD=$(generate_password)
 DB_PASSWORD=$(generate_password)
 CUSTOM_DB_PASSWORD=$(generate_password)
+ASTERISK_SERVER_IP=${ASTERISK_SERVER_IP:-}
 
 # Secure credential storage
 cat > "$CREDS_FILE" << EOF
 # ViciDial ULTIMATE Credentials
 # Generated: $(date)
 # KEEP THIS FILE SECURE!
-
 # MariaDB Root
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
-
+DB_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
 # ViciDial Database Users
 DB_USER=cron
 DB_PASSWORD=$DB_PASSWORD
 DB_NAME=asterisk
-
 CUSTOM_DB_USER=custom
 CUSTOM_DB_PASSWORD=$CUSTOM_DB_PASSWORD
-
 # Server Info
 SERVER_IP=$SERVER_IP
 INSTALL_MODE=$INSTALL_MODE
-echo "INSTALL_MODE=$INSTALL_MODE" >> "$INSTALL_MARKER"
+EOF
+chmod 600 "$CREDS_FILE"
 
+echo "INSTALL_MODE=$INSTALL_MODE" >> "$INSTALL_MARKER"
 if [ "$INSTALL_MODE" == "cluster" ]; then
     read -p "Enter Asterisk server IP address: " ASTERISK_SERVER_IP
     echo "ASTERISK_SERVER_IP=$ASTERISK_SERVER_IP" >> "$INSTALL_MARKER"
     echo "ASTERISK_SERVER_IP=$ASTERISK_SERVER_IP" >> "$CREDS_FILE"
 fi
-EOF
 
-chmod 600 "$CREDS_FILE"
 success "Credentials generated and stored securely: $CREDS_FILE"
 warning "SAVE THESE CREDENTIALS! File: $CREDS_FILE"
-
 init_progress
 
 ################################################################################
