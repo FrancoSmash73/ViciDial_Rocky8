@@ -2,3 +2,6 @@
 .vicidial_ultimate_credentials
 /root/.vicidial_*
 *.log
+errstr
+execute
+rows
