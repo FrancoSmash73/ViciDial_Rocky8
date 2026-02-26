@@ -12,17 +12,23 @@ echo " ViciDial Rocky 10 Audit — $(hostname) / $SERVER_IP"
 echo " $(date)"
 echo "============================================================"
 
-# ── Detect DB password from /etc/astguiclient.conf ───────────
+# ── Detect DB connection from /etc/astguiclient.conf ─────────
+DB_HOST=$(grep -oP '(?<=VARDB_server => )[^\s]+' /etc/astguiclient.conf 2>/dev/null | head -1)
+DB_HOST=${DB_HOST:-127.0.0.1}
+DB_NAME=$(grep -oP '(?<=VARDB_database => )[^\s]+' /etc/astguiclient.conf 2>/dev/null | head -1)
+DB_NAME=${DB_NAME:-asterisk}
+DB_USER=$(grep -oP '(?<=VARDB_user => )[^\s]+' /etc/astguiclient.conf 2>/dev/null | head -1)
+DB_USER=${DB_USER:-cron}
 DB_PASS=$(grep -oP '(?<=VARDB_pass => )[^\s]+' /etc/astguiclient.conf 2>/dev/null | head -1)
 if [ -z "$DB_PASS" ]; then
   echo -e "  ${WARN} Could not detect DB password from /etc/astguiclient.conf"
-  read -rsp "  Enter MariaDB root password manually: " DB_PASS
+  read -rsp "  Enter DB password manually: " DB_PASS
   echo
 fi
 
-# Helper: query a table count silently
+# Helper: query a table count silently (uses VARDB_* credentials, works local or remote)
 check_table() {
-  mysql -uroot asterisk -p"$DB_PASS" -se "SELECT COUNT(*) FROM $1;" 2>/dev/null
+  mysql -h"$DB_HOST" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -se "SELECT COUNT(*) FROM $1;" 2>/dev/null
 }
 
 # ── 1. Screen sockets ────────────────────────────────────────
@@ -30,7 +36,10 @@ echo -e "\n── 1. Screen Sockets ──"
 SCREENS=$(screen -ls 2>/dev/null | grep -c "Detached\|Attached")
 echo "  Found: $SCREENS sockets"
 screen -ls 2>/dev/null | grep -E "Detached|Attached" | awk '{print "  "$0}'
-EXPECTED="ASTupdate ASTsend ASTlisten ASTVDauto ASTSIPlogger ASTConfUpdater ASTVDremote ASTVDadapt ASTfastlog ASTemail ASTconf3way asterisk"
+KEEPALIVES=$(grep -oP '(?<=VARactive_keepalives => )[^\s]+' /etc/astguiclient.conf 2>/dev/null | head -1)
+EXPECTED="ASTupdate ASTsend ASTlisten ASTVDauto ASTSIPlogger ASTConfUpdater ASTVDremote ASTfastlog ASTemail ASTconf3way asterisk"
+# ASTVDadapt only runs on the server with code 5 in VARactive_keepalives
+[[ "$KEEPALIVES" == *5* ]] && EXPECTED="$EXPECTED ASTVDadapt"
 for s in $EXPECTED; do
   screen -ls 2>/dev/null | grep -q "$s" \
     && echo -e "  $PASS $s" \
@@ -46,7 +55,7 @@ if [ -z "$VS" ]; then
 elif [ "$VS" -eq 0 ]; then
   echo -e "  $FAIL vicidial_settings — exists but EMPTY (run first_server_install.sql)"
 else
-  AK=$(mysql -uroot asterisk -p"$DB_PASS" \
+  AK=$(mysql -h"$DB_HOST" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
     -se "SELECT active_keepalives FROM vicidial_settings LIMIT 1;" 2>/dev/null)
   echo -e "  $PASS vicidial_settings — $VS row(s), active_keepalives=$AK"
 fi
