@@ -2,130 +2,197 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What This Project Is
+---
 
-A modular, idempotent installation framework for deploying **ViciDial** (open-source call center / auto-dialer) on **Rocky Linux 10 / AlmaLinux 10**. It also ships a three-layer process management system that eliminates the duplicate-daemon bug inherent in vanilla ViciDial installations.
+## Cluster Architecture
 
-Core stack after install: Asterisk 18.21.0-vici · DAHDI 3.4.0 · LibPRI 1.6.1 · MariaDB 10.11 · Apache + PHP 8.3 · Perl 5.40.
+| Role | IP | Notes |
+|------|----|-------|
+| **Asterisk (this server)** | `172.235.34.224` | Handles all SIP/RTP, AGI scripts, audio playback |
+| **DB / Web (ViciDial Admin)** | `172.239.67.94` | MariaDB + Apache + ViciDial PHP frontend |
+
+- **Asterisk version:** `18.21.0-vici`
+- **OS:** Rocky Linux 10
+- **SSH port:** `1951` (not 22)
+- **ViciDial config:** `/etc/astguiclient.conf`
+- **DB credentials:** user `cron`, pass in `/etc/astguiclient.conf` (`VARDB_pass`)
+- **Cluster build repo:** `https://github.com/FrancoSmash73/vicidial-rocky10` (install scripts at `/usr/src/vicidial-rocky10/`)
 
 ---
 
-## Installation Commands
+## Key Paths
 
-The three parts are independent and idempotent — safe to re-run; each step prompts **[S]kip / [R]e-run / [Q]uit** based on progress markers in `/root/`.
-
-```bash
-# Part 1 — MariaDB, Apache, PHP 8.3, Perl modules, ViciDial schema
-chmod +x vicidial_rocky10_part1_install.sh && ./vicidial_rocky10_part1_install.sh
-
-# Part 2 — DAHDI, LibPRI, Asterisk, ViciDial core, systemd services, process management
-chmod +x vicidial_rocky10_part2_install.sh && ./vicidial_rocky10_part2_install.sh
-
-# Part 3 — Process management only (can run standalone on any existing ViciDial install)
-chmod +x vicidial_rocky10_part3_process_mgmt.sh && ./vicidial_rocky10_part3_process_mgmt.sh
-```
-
-**Logs:**
-- Part 1: `/var/log/vicidial_ultimate_part1.log`
-- Part 2: `/var/log/vicidial_install_part2.log`
-- Part 3: `/var/log/vicidial_step23_process_mgmt.log`
+| Purpose | Path |
+|---------|------|
+| ViciDial Perl scripts | `/usr/share/astguiclient/` |
+| AGI scripts | `/var/lib/asterisk/agi-bin/` |
+| Audio files | `/var/lib/asterisk/sounds/` |
+| Empire IVR audio (EN) | `/var/lib/asterisk/sounds/empire/` |
+| Empire IVR audio (ES) | `/var/lib/asterisk/sounds/empire/es/` |
+| Asterisk dialplan | `/etc/asterisk/extensions.conf` |
+| ViciDial dialplan include | `/etc/asterisk/extensions-vicidial.conf` |
+| Empire IVR dialplan | `/etc/asterisk/extensions-empire-ivr.conf` |
+| ViciDial logs | `/var/log/astguiclient/` |
+| Asterisk full log | `/var/log/asterisk/full` |
 
 ---
 
-## Verification & Diagnostics
+## Common Operational Commands
 
+### Asterisk
 ```bash
-# Post-install health check (screens, DB, timers, DBI patch verification)
-./vicidial_rocky10_audit.sh
+# Live CLI with verbose logging
+asterisk -rvvvvv
 
-# Multi-server cluster audit
-python3 vicidial_rocky10_audit.py
-
-# Show currently running duplicate processes
-./vicidial_duplicate_checker.sh
-
-# Watch process monitor live
-systemctl status vicidial-process-monitor
-tail -f /var/log/astguiclient/process_monitor.log
-
-# Check Asterisk SIP peers / active calls
-asterisk -rx "sip show peers"
-asterisk -rx "sip show registry"
+# Non-interactive commands
 asterisk -rx "core show channels"
+asterisk -rx "sip show peers"
+asterisk -rx "dialplan reload"
+asterisk -rx "dialplan show <context>"
 
-# Live SIP debug for a specific trunk
-asterisk -rx "sip set debug peer <trunk-name>"
-tail -f /var/log/asterisk/messages
+# Monitor live calls for a campaign or audio file
+tail -f /var/log/asterisk/full
 ```
 
----
-
-## Architecture: Three-Layer Process Management
-
-The core innovation of this project. ViciDial's `ADMIN_keepalive_ALL.pl` (which spawns ~10 screen-session daemons) was historically run via raw cron — causing 5–10 overlapping instances when any run exceeded 60 seconds.
-
-**Layer 1 — systemd timer** (`vicidial-keepalive.timer`):
-Uses `OnUnitInactiveSec=1min` (not `OnCalendar`), so the next run starts 60 seconds **after the previous completes**, never while it's still running.
-
-**Layer 2 — flock wrapper** (`/usr/local/bin/vicidial_cron_wrapper.sh`):
-Belt-and-suspenders. A second invocation exits immediately if the lock file is held.
-
-**Layer 3 — process monitor daemon** (`vicidial_process_monitor.sh`):
-Runs every 60 seconds. Finds any process with >1 instance, keeps the oldest (longest-running), SIGTERMs then SIGKILLs the rest. Also kills runaway processes exceeding `MAX_RUNTIME`.
-
----
-
-## Critical Rocky Linux 10 Compatibility Patches
-
-These are applied automatically by the install scripts but matter when editing ViciDial scripts manually:
-
-**DBD::mysql → DBD::MariaDB** — Rocky 10 ships Perl 5.40 which has no `DBD::mysql`. Every `.agi` and `.pl` in ViciDial must use `DBI:MariaDB` instead:
+### ViciDial DB queries (run on DB server 172.239.67.94)
 ```bash
-sed -i 's/DBI:mysql/DBI:MariaDB/g' /var/lib/asterisk/agi-bin/*.agi
-sed -i 's/DBI:mysql/DBI:MariaDB/g' /usr/share/astguiclient/*.pl
+mysql -u cron -p'<pass>' asterisk -e "<query>"
+
+# Campaign call stats
+SELECT status, count(*) FROM vicidial_log WHERE campaign_id='XXXX' GROUP BY status;
+
+# Answered calls with duration
+SELECT phone_number, status, length_in_sec, call_date FROM vicidial_log
+  WHERE campaign_id='XXXX' AND status NOT IN ('NA','PDROP') ORDER BY call_date DESC LIMIT 20;
+
+# Live agents in campaign
+SELECT user, campaign_id, status FROM vicidial_live_agents WHERE campaign_id='XXXX';
+
+# Campaign broadcast settings
+SELECT campaign_id, dial_method, survey_method, survey_first_audio_file,
+  am_message_exten, cpd_amd_action, dial_prefix FROM vicidial_campaigns;
 ```
-If inbound calls fail silently, this patch missing is the first thing to check.
 
-**Switch.pm removed** — Perl 5.40 dropped `Switch.pm`. Any ViciDial script using `use Switch;` must be patched to use `if/elsif` chains.
-
-**`ps` truncation** — `procps-ng 4.0.4` truncates `ps` output at 4096 chars. The process monitor queries `/proc/<pid>/cmdline` directly instead of parsing `ps aux`.
-
----
-
-## ViciDial Screen Daemons
-
-`ADMIN_keepalive_ALL.pl --cu3way` manages these persistent `screen` sessions:
-
-| Screen Name | Script |
-|---|---|
-| ASTupdate | AST_update_AMI2.pl |
-| ASTlisten | AST_manager_listen_AMI2.pl |
-| ASTsend | AST_manager_send.pl |
-| ASTVDauto | AST_VDauto_dial.pl |
-| ASTVDadapt | AST_VDadapt.pl |
-| ASTVDremote | AST_VDremote_agents.pl |
-| ASTfastlog, ASTSIPlogger, ASTConfUpdater, ASTemail, ASTconf3way | (various) |
-
-Access a daemon: `screen -r ASTupdate`
-List all: `screen -ls`
+### Force ViciDial config rebuild (after carrier/SIP changes)
+```bash
+perl /usr/share/astguiclient/ADMIN_keepalive_ALL.pl --force
+```
 
 ---
 
-## Dialplan & Asterisk Config Locations
+## Audio Files (Broadcast/IVR)
 
-- ViciDial auto-generates `/etc/asterisk/sip-vicidial.conf` and `/etc/asterisk/extensions-vicidial.conf` — **edits to these files are overwritten** on every VICIdial admin save or reload.
-- Carrier trunk config and dialplan entries survive in the **ViciDial admin UI** (Carriers → Account Entry / DialEntry fields), which is the authoritative source.
-- Custom dialplan that must survive reloads goes in `/etc/asterisk/extensions_custom.conf` included via `extensions.conf`.
-- RTP port range: **9000–35000** (see `configs/rtp.conf`).
-- Asterisk logs: `/var/log/asterisk/messages` (primary), `/var/log/asterisk/full` (verbose/debug).
+All audio files must be:
+- **Format:** PCM WAV, 8000 Hz, 16-bit, mono
+- **Owner:** `asterisk:asterisk`
+- **Permissions:** `644`
+
+```bash
+# Verify format
+soxi /var/lib/asterisk/sounds/yourfile.wav    # must show 8000 Hz, 1 channel, 16-bit
+
+# Convert any WAV to correct format
+sox input.wav -r 8000 -c 1 -e signed-integer -b 16 /var/lib/asterisk/sounds/output.wav
+
+# Fix ownership
+chown asterisk:asterisk /var/lib/asterisk/sounds/yourfile.wav
+
+# In a cluster, copy to ALL Asterisk servers — calls route to any dial node
+```
+
+### Broadcast campaign flow
+- `dial_method` = `RATIO` (requires at least one agent logged in to dial)
+- `survey_first_audio_file` = filename without `.wav` extension
+- `survey_method` = `HANGUP` (play then hang up) or `AGENT_XFER`
+- `cpd_amd_action` = `DISABLED` (plays to everyone who answers)
+- Test from bottom of campaign page = **manual agent dial**, does NOT trigger survey audio
+- `length_in_sec` in `vicidial_log` only counts for answered calls; `NA` calls always show `0`
 
 ---
 
-## Deployment Scenarios
+## Perl / AGI — Critical: Module Paths and Drivers
 
-Documented in `INTEGRATION_GUIDE.md`:
-1. **Standalone** — all components on one server (run all three parts)
-2. **Dual-server** — DB/Web on Server 1, Asterisk on Server 2 (Part 1 on S1, Parts 2–3 on S2)
-3. **Add-on to existing ViciDial** — Part 3 only, drops process management onto any existing install
+### DBD::mysql vs DBD::MariaDB
+ViciDial main scripts (vdautodial, remoteagent, etc.) use `DBI:MariaDB:` — requires `DBD::MariaDB` (installed).
+AGI scripts (agi-VDAD_local_optimize.agi, etc.) still use `DBI:mysql:` — requires `DBD::mysql`.
+On Rocky Linux 10, only `DBD::MariaDB` is installed by default. AGI scripts fail silently at the DB connect line.
+Fix: `cpanm --notest DVEEDEN/DBD-mysql-4.052.tar.gz` (v5.x fails to compile against MariaDB headers).
+Both modules coexist safely.
 
-The `EMPIRE_SESSION_NOTES.md` file contains a full production case study of the dual-server deployment.
+### Asterisk systemd service — runs as root, never run a second console instance
+Asterisk runs as a **systemd service** configured as `User=root` (see `/etc/systemd/system/asterisk.service`).
+ViciDial's AGI scripts, log files, and directories all expect root ownership. Running as `asterisk` user
+causes permission denied errors in action_process logs, CDR logs, and ViciDial astguiclient logs.
+Never start a second instance with `asterisk -vvvgcT`. If two instances run, both bind to UDP 5060 and
+SIP 200 OK responses go to the wrong process — all carriers show UNREACHABLE.
+```bash
+ss -ulnp | grep 5060    # Must show only 1 process (root)
+systemctl status asterisk   # Use this to check status
+asterisk -r             # Connect to running service for CLI
+```
+
+### Module Path
+
+ViciDial puts Perl modules in `/usr/share/astguiclient/libs/` but Asterisk spawns AGI scripts without `PERL5LIB` set. On Rocky Linux 10, modules must be manually copied to the system Perl path or **every AGI call silently fails**.
+
+```bash
+# Symptom: "AGI Script completed, returning 0" with no actual routing happening
+# Fix:
+perl -e "print $]"    # get Perl version, e.g. 5.040
+mkdir -p /usr/local/share/perl5/5.40/Asterisk
+cp /usr/share/astguiclient/libs/Asterisk/*.pm /usr/local/share/perl5/5.40/Asterisk/
+cp /usr/share/astguiclient/libs/Asterisk.pm   /usr/local/share/perl5/5.40/
+cp /usr/share/astguiclient/libs/viciagi.pm    /usr/local/share/perl5/5.40/
+cp /usr/share/astguiclient/libs/vicidial.pm   /usr/local/share/perl5/5.40/
+
+# Verify
+perl -e "use Asterisk::AGI; print 'OK\n'"
+perl -c /var/lib/asterisk/agi-bin/agi-DID_route.agi
+```
+
+---
+
+## Firewall (firewalld)
+
+**Use firewalld exclusively — never enable the nftables service (it creates hidden DROP rules that override firewalld).**
+
+```bash
+systemctl status nftables       # Must be disabled/inactive
+nft list ruleset | grep "saddr !="   # Must return nothing
+
+# Carriers whitelisted on this server:
+# 66.209.76.0/24  — DID4Sale (inbound DIDs)
+# 88.151.128.22   — TBI-OUT (outbound SIP trunk)
+
+# Add a new carrier IP
+firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="X.X.X.X" port port="5060" protocol="udp" accept'
+firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="X.X.X.X" service name="rtp" accept'
+firewall-cmd --reload
+```
+
+fail2ban uses `nftables-allports` action (NOT iptables). Two action lines required — one for TCP, one for UDP:
+```ini
+action = nftables-allports[name=asterisk]
+         nftables-allports[name=asterisk-udp, protocol=udp]
+```
+
+---
+
+## Empire IVR
+
+- **DID:** `6088091363` → context `empire-ivr` in `/etc/asterisk/extensions-empire-ivr.conf`
+- English audio: `/var/lib/asterisk/sounds/empire/`
+- Spanish audio: `/var/lib/asterisk/sounds/empire/es/`
+- After any dialplan change: `asterisk -rx "dialplan reload"` then `asterisk -rx "dialplan show empire-ivr"`
+
+---
+
+## Carrier SIP Config
+
+`allowguest=no` is set in `sip.conf` — every inbound carrier IP needs a peer entry in ViciDial DB. For carriers with multiple gateway IPs, add one DB entry per IP and whitelist the full `/24` in firewall.
+
+```sql
+-- After inserting carrier, trigger config rebuild:
+UPDATE servers SET rebuild_conf_files='Y' WHERE server_ip='172.235.34.224';
+-- Then run: perl /usr/share/astguiclient/ADMIN_keepalive_ALL.pl --force
+```
