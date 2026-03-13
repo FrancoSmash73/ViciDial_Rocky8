@@ -1422,6 +1422,25 @@ else
         perl -e 'use Asterisk::AGI; print "ok"' 2>/dev/null | grep -q ok && \
             success "Asterisk::AGI now in system Perl path (${PERL_DEST})" || \
             warning "Asterisk::AGI copy completed but module still not loadable - check Perl version"
+
+        # ---------------------------------------------------------------------------
+        # PATCH: Asterisk::AGI.pm — fix empty survey_dtmf_digits bug
+        # When a campaign has survey_dtmf_digits='' (empty string in DB), the
+        # ViciDial AGI script calls stream_file("file", "").
+        # The stock Asterisk::AGI module only substitutes '""' for undef, not "".
+        # An empty string causes the AGI command "STREAM FILE filename " (trailing
+        # space, no escape_digits) — Asterisk returns 520 Invalid command syntax,
+        # the Perl module returns undef, and the survey audio is NEVER played.
+        # Fix: treat empty string the same as undef (use '""' as escape_digits).
+        # ---------------------------------------------------------------------------
+        log "Patching Asterisk::AGI.pm — empty survey_dtmf_digits fix..."
+        for _agi_pm in "${PERL_DEST}/Asterisk/AGI.pm" /usr/share/astguiclient/libs/Asterisk/AGI.pm; do
+            if [ -f "$_agi_pm" ]; then
+                sed -i "s/\\\$digits = '\"\"' if (!defined(\\\$digits));/\$digits = '\"\"' if (!defined(\$digits) || \$digits eq '');/g" "$_agi_pm"
+                log "  Patched: $_agi_pm"
+            fi
+        done
+        success "Asterisk::AGI.pm empty-digits fix applied"
     fi
 fi
 

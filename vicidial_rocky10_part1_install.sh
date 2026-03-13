@@ -757,6 +757,21 @@ if ! is_complete "PERL_MODULES"; then
     else
         error "DBD::MariaDB installation failed!"
     fi
+
+    # ---------------------------------------------------------------------------
+    # DBD::mysql 4.052 — required for ViciDial AGI scripts on Rocky Linux 10
+    # ViciDial AGI scripts (agi-VDAD_ALL_outbound.agi, agi-VDAD_local_optimize.agi,
+    # etc.) use DBI:mysql: directly. DBD::mysql v5.x fails to compile against
+    # MariaDB client headers (missing MySQL-only symbols like
+    # mysql_real_escape_string_quote, MYSQL_OPT_SSL_MODE, etc.).
+    # v4.052 compiles cleanly and coexists safely with DBD::MariaDB.
+    # Without this, AGI scripts silently fail at DB connect → no call routing.
+    # ---------------------------------------------------------------------------
+    log "Installing DBD::mysql 4.052 for ViciDial AGI script compatibility..."
+    cpanm --notest DVEEDEN/DBD-mysql-4.052.tar.gz && \
+        success "DBD::mysql 4.052 installed" || \
+        warning "DBD::mysql 4.052 install failed — AGI scripts may fail if not patched to MariaDB"
+
     mark_complete "PERL_MODULES"
 fi
 
