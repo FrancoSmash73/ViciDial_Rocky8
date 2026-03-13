@@ -744,6 +744,12 @@ if ! is_complete "PERL_MODULES"; then
                 Proc::ProcessTable File::Temp Scalar::Util IO::Scalar DBD::MariaDB \
                 Switch
 
+    # DBD::mysql v5.x fails to compile against MariaDB headers — pin to 4.052
+    cpanm --notest DBD::mysql@4.052
+
+    # Asterisk::AGI required for ViciDial survey/IVR AGI scripts
+    cpanm --notest Asterisk::AGI
+
     # Install build dependencies first
     cpanm --notest Devel::CheckLib
 

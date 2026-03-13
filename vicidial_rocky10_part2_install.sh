@@ -1444,6 +1444,37 @@ else
     fi
 fi
 
+# ---------------------------------------------------------------------------
+# PATCH: Asterisk::AGI.pm empty-digits bug
+# stream_file / get_data / record_file / control_stream_file return empty
+# string instead of undef on no-digit responses, causing AGI crash/hang in
+# ViciDial survey campaigns (symptom: SVYHU calls with length_in_sec=0).
+# Fix: treat empty string same as undef. Same 1-line change in 4 functions.
+# Must run AFTER ViciDial libs are copied so both paths are patched.
+# ---------------------------------------------------------------------------
+log "Applying Asterisk::AGI.pm empty-digits patch..."
+_patch_agi_pm() {
+    local FILE="$1"
+    if [ -f "$FILE" ]; then
+        sed -i "s/\$digits = '\"\"' if (!defined(\$digits));/\$digits = '\"\"' if (!defined(\$digits) || \$digits eq '');/g" "$FILE"
+        COUNT=$(grep -c "digits.*eq ''" "$FILE" 2>/dev/null || echo 0)
+        if [ "$COUNT" -eq 4 ]; then
+            success "Asterisk::AGI.pm empty-digits patch applied ($FILE)"
+        else
+            warning "Asterisk::AGI.pm patch may be incomplete — found $COUNT/4 lines ($FILE)"
+        fi
+    else
+        warning "Asterisk::AGI.pm not found at $FILE — skipping"
+    fi
+}
+
+# Patch system Perl path (cpanm-installed copy)
+SYS_AGI=$(perl -MAsterisk::AGI -e 'print $INC{"Asterisk/AGI.pm"}' 2>/dev/null)
+[ -n "$SYS_AGI" ] && _patch_agi_pm "$SYS_AGI"
+
+# Patch ViciDial libs copy (copied above from astguiclient/libs)
+_patch_agi_pm "/usr/share/astguiclient/libs/Asterisk/AGI.pm"
+
 # ===========================================================================
 # STEP 7.5: PATCH ALL VICIDIAL SCRIPTS + AGI SCRIPTS (FIX #1 - CRITICAL)
 # ===========================================================================
