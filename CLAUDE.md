@@ -16,7 +16,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **SSH port:** `1951` (not 22)
 - **ViciDial config:** `/etc/astguiclient.conf`
 - **DB credentials:** user `cron`, pass in `/etc/astguiclient.conf` (`VARDB_pass`)
-- **Cluster build repo:** `https://github.com/FrancoSmash73/vicidial-rocky10` (install scripts at `/usr/src/vicidial-rocky10/`)
+- **Cluster build repo:** `https://github.com/FrancoSmash73/vicidial-rocky10` (local: `/usr/src/vicidial-rocky10/`)
+  - `vicidial_rocky10_part1_install.sh` — system deps, Perl modules, DBD::mysql 4.052
+  - `vicidial_rocky10_part2_install.sh` — Asterisk build, ViciDial SVN, DB schema, AGI.pm patch
+  - `vicidial_rocky10_part3_process_mgmt.sh` — systemd services, keepalive, process management
 
 ---
 
@@ -105,8 +108,25 @@ chown asterisk:asterisk /var/lib/asterisk/sounds/yourfile.wav
 - `survey_first_audio_file` = filename without `.wav` extension
 - `survey_method` = `HANGUP` (play then hang up) or `AGENT_XFER`
 - `cpd_amd_action` = `DISABLED` (plays to everyone who answers)
+- `survey_dtmf_digits` = **must not be empty** — empty string causes `STREAM FILE` to be sent without escape_digits, Asterisk returns `520 Invalid command syntax`, audio is never played (calls log as `SVYHU` with `length_in_sec=0`). Set to any non-empty value e.g. `0123456789*#`.
 - Test from bottom of campaign page = **manual agent dial**, does NOT trigger survey audio
 - `length_in_sec` in `vicidial_log` only counts for answered calls; `NA` calls always show `0`
+
+### Survey campaign debugging
+```bash
+# AGI execution log — shows every DB query and stream_file result per call
+tail -f /var/log/astguiclient/agiout.$(date +%Y-%m-%d)
+
+# Symptom: survey audio not playing, calls log SVYHU with length_in_sec=0
+# Diagnostic: grep for interrupt_digit in AGI log
+grep "interrupt_digit" /var/log/astguiclient/agiout.$(date +%Y-%m-%d)
+# "interrupt_digit ||" = stream_file returned undef (520 error or channel dead)
+# "interrupt_digit |0|" = file played successfully, no key pressed
+# "interrupt_digit |-1|" = channel hung up during playback
+
+# Asterisk log: "Playing 'filename'" only appears if Asterisk actually starts the file
+grep "Playing\|SVYHU\|AGI Script" /var/log/asterisk/full | tail -30
+```
 
 ---
 
@@ -118,6 +138,23 @@ AGI scripts (agi-VDAD_local_optimize.agi, etc.) still use `DBI:mysql:` — requi
 On Rocky Linux 10, only `DBD::MariaDB` is installed by default. AGI scripts fail silently at the DB connect line.
 Fix: `cpanm --notest DVEEDEN/DBD-mysql-4.052.tar.gz` (v5.x fails to compile against MariaDB headers).
 Both modules coexist safely.
+
+### Asterisk::AGI.pm — empty digits bug (patched on this server)
+Stock ViciDial ships `Asterisk::AGI.pm` with a bug: `stream_file($file, "")` (empty string digits) sends
+`STREAM FILE filename ` without escape_digits. Asterisk returns `520 Invalid command syntax` and the file
+never plays. Patched in both locations:
+- `/usr/local/share/perl5/5.40/Asterisk/AGI.pm`
+- `/usr/share/astguiclient/libs/Asterisk/AGI.pm`
+
+```bash
+# One-liner to apply patch (all 4 affected functions):
+sed -i "s/\$digits = '\"\"' if (!defined(\$digits));/\$digits = '\"\"' if (!defined(\$digits) || \$digits eq '');/g" \
+    /usr/local/share/perl5/5.40/Asterisk/AGI.pm \
+    /usr/share/astguiclient/libs/Asterisk/AGI.pm
+
+# Verify (should show 4 lines):
+grep -c "eq ''" /usr/local/share/perl5/5.40/Asterisk/AGI.pm
+```
 
 ### Asterisk systemd service — runs as root, never run a second console instance
 Asterisk runs as a **systemd service** configured as `User=root` (see `/etc/systemd/system/asterisk.service`).
