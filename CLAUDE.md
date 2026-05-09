@@ -17,9 +17,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **ViciDial config:** `/etc/astguiclient.conf`
 - **DB credentials:** user `cron`, pass in `/etc/astguiclient.conf` (`VARDB_pass`)
 - **Cluster build repo:** `https://github.com/FrancoSmash73/vicidial-rocky10` (local: `/usr/src/vicidial-rocky10/`)
-  - `vicidial_rocky10_part1_install.sh` — system deps, Perl modules, DBD::mysql 4.052
-  - `vicidial_rocky10_part2_install.sh` — Asterisk build, ViciDial SVN, DB schema, AGI.pm patch
-  - `vicidial_rocky10_part3_process_mgmt.sh` — systemd services, keepalive, process management
+  - `vicidial_rocky10_part1_install.sh` — system deps, Perl modules, DBD::mysql 4.052, PHP UTC timezone
+  - `vicidial_rocky10_part2_install.sh` — Asterisk build, ViciDial SVN, DB schema, AGI.pm patch, sip.conf websocket fix, VARactive_keepalives flags
+  - `vicidial_rocky10_part3_process_mgmt.sh` — systemd services, keepalive, process management, ps truncation fix (4 scripts)
+  - `vicidial_rocky10_part4_webrtc.sh` — WebRTC/WSS (Asterisk http.conf + pjsip transport-wss), Let's Encrypt SSL, HulkPhone softphone deploy
 
 ---
 
@@ -155,6 +156,41 @@ sed -i "s/\$digits = '\"\"' if (!defined(\$digits));/\$digits = '\"\"' if (!defi
 # Verify (should show 4 lines):
 grep -c "eq ''" /usr/local/share/perl5/5.40/Asterisk/AGI.pm
 ```
+
+### chan_sip + res_pjsip WebSocket conflict — websocket_enabled must be false
+
+ViciDial install.pl sets `websocket_enabled=true` in `sip.conf` by default. This causes `chan_sip.so`
+to register the `"sip"` WebSocket sub-protocol during module load. When `res_pjsip_transport_websocket.so`
+then tries to register the same sub-protocol, it fails with `AST_MODULE_LOAD_DECLINE` — the module shows
+"Not Running" and **WebRTC softphones can never register**.
+
+Fix (one line in `/etc/asterisk/sip.conf`):
+```
+websocket_enabled=false  ; Required when using res_pjsip — see comment in sip.conf
+```
+
+The comment already in ViciDial's sip.conf template says exactly this. Part 2 install script now applies
+it automatically post-install.pl.
+
+```bash
+# Verify the module loaded:
+asterisk -rx "module show like res_pjsip_transport_websocket"
+# Must show: Running
+```
+
+### ps truncation on Rocky Linux 10 — 4 ViciDial scripts affected
+
+`procps-ng 4.0.4` (Rocky Linux 10) truncates output of `ps -o "%p %a"` to ~30 chars, cutting off full
+Perl script paths. Four ViciDial scripts use this format to detect running processes — when the path is
+truncated, they think their sibling processes are dead and either exit or spawn duplicates:
+
+- `ADMIN_keepalive_ALL.pl`
+- `AST_manager_send.pl`
+- `AST_VDremote_agents.pl`
+- `AST_VDauto_dial.pl`
+
+Fix: swap to `ps -f --no-headers -A` (or `ps -o "pid,args" --no-headers -A`). Part 3 script patches all
+four automatically.
 
 ### Asterisk systemd service — runs as root, never run a second console instance
 Asterisk runs as a **systemd service** configured as `User=root` (see `/etc/systemd/system/asterisk.service`).

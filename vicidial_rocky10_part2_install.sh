@@ -2105,20 +2105,29 @@ else
 cp "$ASTGUICLIENT_CONF" "${ASTGUICLIENT_CONF}.backup"
 
 if grep -q 'VARactive_keepalives' "$ASTGUICLIENT_CONF"; then
+# Add 'C' flag (ASTConfUpdater) if missing
 if ! grep -q 'VARactive_keepalives.*C' "$ASTGUICLIENT_CONF"; then
 sed -i 's/\(VARactive_keepalives.*=>[^0-9]*[0-9]*\)\([^C]*\)$/\1C\2/' \
 "$ASTGUICLIENT_CONF" || \
 sed -i 's/\(VARactive_keepalives\s*=>\s*\)\([0-9A-Z]*\)/\1\2C/' \
 "$ASTGUICLIENT_CONF"
-success "Added 'C' flag to VARactive_keepalives"
+success "Added 'C' flag to VARactive_keepalives (ASTConfUpdater)"
 else
 info "'C' flag already in VARactive_keepalives"
+fi
+# Add '7' flag (ASTVDadFILL) if missing — required for the hopper-fill screen
+if ! grep -q 'VARactive_keepalives.*7' "$ASTGUICLIENT_CONF"; then
+sed -i 's/\(VARactive_keepalives\s*=>\s*\)\([0-9A-Z]*\)/\1\27/' \
+"$ASTGUICLIENT_CONF"
+success "Added '7' flag to VARactive_keepalives (ASTVDadFILL screen)"
+else
+info "'7' flag already in VARactive_keepalives"
 fi
 
 grep 'VARactive_keepalives' "$ASTGUICLIENT_CONF" | head -2
 else
 warning "VARactive_keepalives line not found in $ASTGUICLIENT_CONF"
-warning "Add 'C' manually: VARactive_keepalives => 123456C8"
+warning "Add flags manually: VARactive_keepalives => 12345678CES"
 fi
 
 CRON_TMP=$(mktemp)
@@ -2527,6 +2536,30 @@ sed -i "s/SERVER_EXTERNAL_IP/${SERVER_IP}/g" "$PJSIP_CONF"
 success "pjsip.conf: external addresses set to $SERVER_IP"
 else
 log "pjsip.conf: no SERVER_EXTERNAL_IP placeholder found (already correct)"
+fi
+
+# ---------------------------------------------------------------------------
+# FIX: sip.conf websocket_enabled — must be false when res_pjsip is active
+# ViciDial install.pl sets websocket_enabled=true in sip.conf by default.
+# This causes chan_sip to register the "sip" WebSocket sub-protocol first,
+# which prevents res_pjsip_transport_websocket.so from loading (it declines
+# with AST_MODULE_LOAD_DECLINE because the protocol name is already taken).
+# Result: WebRTC softphones show "NOT REGISTERED" forever.
+# ---------------------------------------------------------------------------
+SIP_CONF="/etc/asterisk/sip.conf"
+if [ -f "$SIP_CONF" ]; then
+    if grep -q 'websocket_enabled=true' "$SIP_CONF"; then
+        sed -i 's/websocket_enabled=true/websocket_enabled=false/' "$SIP_CONF"
+        success "sip.conf: websocket_enabled set to false (res_pjsip WebRTC fix)"
+    elif grep -q 'websocket_enabled' "$SIP_CONF"; then
+        info "sip.conf: websocket_enabled already set correctly"
+    else
+        # Line not present at all — append it to [general] section
+        sed -i '/^\[general\]/a websocket_enabled=false\t; Required: prevents chan_sip from stealing the sip WebSocket protocol from res_pjsip' "$SIP_CONF"
+        success "sip.conf: websocket_enabled=false added to [general]"
+    fi
+else
+    warning "sip.conf not found — websocket_enabled fix will need to be applied manually after install.pl"
 fi
 
 # FIX #3: Improved GMT offset calculation (no Python dependency)

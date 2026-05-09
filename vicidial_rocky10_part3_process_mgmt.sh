@@ -607,7 +607,8 @@ PS_FIX_SKIPPED=0
 for target_file in \
     "/usr/share/astguiclient/ADMIN_keepalive_ALL.pl" \
     "/usr/share/astguiclient/AST_manager_send.pl" \
-    "/usr/share/astguiclient/AST_VDremote_agents.pl"; do
+    "/usr/share/astguiclient/AST_VDremote_agents.pl" \
+    "/usr/share/astguiclient/AST_VDauto_dial.pl"; do
 
     if [ ! -f "$target_file" ]; then
         warning "$target_file not found - skipping"
