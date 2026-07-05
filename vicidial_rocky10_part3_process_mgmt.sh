@@ -405,6 +405,34 @@ while true; do
         done
     done
 
+    # ---- Liveness check: AST_update_AMI2.pl (Health page heartbeat) ----
+    # This is the one persistent daemon nothing else in the keepalive stack
+    # verifies. If it dies, server_updater.last_update freezes, the admin
+    # Health page turns red, and the TIME column stops advancing -- with no
+    # error anywhere and no automatic recovery. ADMIN_keepalive_ALL.pl is
+    # *supposed* to restart it every cycle via its own "$AST_update" check,
+    # but that has been observed to silently fail to recover once the
+    # daemon has died, so this monitor restarts it directly as a backstop.
+    # Only meaningful on a server where Asterisk actually runs locally --
+    # on DB-only nodes this is handled by vicidial-heartbeat.service instead.
+    if pgrep -x asterisk &>/dev/null || screen -ls 2>/dev/null | grep -q '\.asterisk\b'; then
+        if ! pgrep -f "AST_update_AMI2.pl" &>/dev/null && ! pgrep -f "AST_update\.pl" &>/dev/null; then
+            mlog "WARN: AST_update_AMI2.pl not running (Health page heartbeat is dead) -- restarting"
+            if [ -f /usr/share/astguiclient/AST_update_AMI2.pl ]; then
+                screen -d -m -S ASTupdate /usr/share/astguiclient/AST_update_AMI2.pl
+            elif [ -f /usr/share/astguiclient/AST_update.pl ]; then
+                screen -d -m -S ASTupdate /usr/share/astguiclient/AST_update.pl
+            fi
+            sleep 2
+            if pgrep -f "AST_update" &>/dev/null; then
+                mlog "ACTION: AST_update restarted successfully"
+            else
+                mlog "ERROR: AST_update restart attempt failed -- check manually"
+            fi
+            KILLED_THIS_SCAN=$((KILLED_THIS_SCAN + 1))
+        fi
+    fi
+
     if [ "$KILLED_THIS_SCAN" -eq 0 ]; then
         mlog "INFO: All processes healthy (0 actions taken)"
     else

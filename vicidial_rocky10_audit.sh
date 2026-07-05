@@ -150,6 +150,60 @@ systemctl is-active vicidial-process-monitor &>/dev/null \
   && echo -e "  $PASS vicidial-process-monitor active" \
   || echo -e "  $FAIL vicidial-process-monitor NOT active"
 
+# ── 9. Health page freshness (server_updater / AST_update_AMI2.pl) ──
+# The "ASTupdate" screen check in section 1 only proves a screen SOCKET
+# exists — it does not prove AST_update_AMI2.pl is still alive inside it
+# (a wrapper can survive after the inner perl process has died) or that
+# it's actually writing fresh heartbeats. This directly checks the data
+# the admin Health page reads, since a stale value here means every agent
+# sees a red Health row and a frozen server TIME column.
+echo -e "\n── 9. Health Page Freshness ──"
+if pgrep -f "AST_update_AMI2.pl" &>/dev/null || pgrep -f "AST_update.pl" &>/dev/null; then
+  echo -e "  $PASS AST_update process is running"
+else
+  echo -e "  $FAIL AST_update_AMI2.pl / AST_update.pl NOT running — Health page will go red and TIME will freeze"
+  echo -e "        Fix: screen -d -m -S ASTupdate /usr/share/astguiclient/AST_update_AMI2.pl"
+fi
+LAST_UPDATE_AGE=$(mysql -h"$DB_HOST" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+  -se "SELECT TIMESTAMPDIFF(SECOND, last_update, NOW()) FROM server_updater WHERE server_ip='$SERVER_IP';" 2>/dev/null)
+if [ -z "$LAST_UPDATE_AGE" ]; then
+  echo -e "  $WARN server_updater — no row for $SERVER_IP (fresh install or IP mismatch)"
+elif [ "$LAST_UPDATE_AGE" -gt 60 ]; then
+  echo -e "  $FAIL server_updater.last_update is ${LAST_UPDATE_AGE}s stale — AST_update_AMI2.pl is dead or stuck"
+else
+  echo -e "  $PASS server_updater.last_update is ${LAST_UPDATE_AGE}s old (fresh)"
+fi
+
+# ── 10. WebRTC / PJSIP config sanity ─────────────────────────
+echo -e "\n── 10. WebRTC / PJSIP Config ──"
+PJSIP_CONF="/etc/asterisk/pjsip.conf"
+if [ -f "$PJSIP_CONF" ]; then
+  grep -q "SERVER_EXTERNAL_IP" "$PJSIP_CONF" \
+    && echo -e "  $FAIL SERVER_EXTERNAL_IP placeholder still in pjsip.conf — never replaced with real IP (causes recurring getaddrinfo errors in the Asterisk CLI)" \
+    || echo -e "  $PASS No SERVER_EXTERNAL_IP placeholder in pjsip.conf"
+
+  if grep -q '^\[webrtc_template\]' "$PJSIP_CONF"; then
+    if grep -A20 '^\[webrtc_template\]' "$PJSIP_CONF" | grep -q '^webrtc=yes'; then
+      echo -e "  $PASS webrtc_template has webrtc=yes"
+    else
+      echo -e "  $FAIL webrtc_template missing webrtc=yes / dtls_auto_generate_cert=yes — WebRTC agents will show 'webrtc: no' and never negotiate DTLS-SRTP media"
+    fi
+  else
+    echo -e "  $WARN No [webrtc_template] found — WebRTC not configured yet (run Part 4)"
+  fi
+else
+  echo -e "  $WARN pjsip.conf not found"
+fi
+
+WEBPHONE_URL=$(mysql -h"$DB_HOST" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+  -se "SELECT webphone_url FROM system_settings LIMIT 1;" 2>/dev/null)
+if [ -z "$WEBPHONE_URL" ]; then
+  echo -e "  $FAIL system_settings.webphone_url is empty — agent screen webphone iframe will not render for any webphone agent"
+  echo -e "        Fix: UPDATE system_settings SET webphone_url='https://YOUR_DOMAIN/hulkphone/hulkphone.php';"
+else
+  echo -e "  $PASS system_settings.webphone_url = $WEBPHONE_URL"
+fi
+
 echo -e "\n============================================================"
 echo " Audit complete — $(date)"
 echo "============================================================"

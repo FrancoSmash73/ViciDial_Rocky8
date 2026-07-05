@@ -144,7 +144,27 @@ fi
 section "STEP 4: PJSIP WebSocket Transport"
 
 if grep -q 'webrtc_template' "${AST_PJSIP_CONF}" 2>/dev/null; then
-    success "pjsip.conf already has webrtc_template"
+    # A webrtc_template section exists, but earlier versions of this script
+    # (and hand-built configs) omitted webrtc=yes / dtls_auto_generate_cert=yes,
+    # which silently breaks WebRTC registration (endpoint shows "webrtc: no",
+    # empty dtls_cert_file) without any error at reload time. Self-heal it
+    # in place rather than trusting section-presence as "already correct".
+    if grep -A20 '^\[webrtc_template\]' "${AST_PJSIP_CONF}" | grep -q '^webrtc=yes'; then
+        success "pjsip.conf already has webrtc_template (webrtc=yes confirmed)"
+    else
+        warning "webrtc_template found but missing webrtc=yes/dtls_auto_generate_cert=yes — patching in place"
+        cp -f "${AST_PJSIP_CONF}" "${AST_PJSIP_CONF}.backup.$(date +%Y%m%d%H%M%S)"
+        sed -i '/^\[webrtc_template\](!)/,/^$/ {
+            /^allow=alaw/a\
+webrtc=yes\
+dtls_auto_generate_cert=yes
+        }' "${AST_PJSIP_CONF}"
+        if grep -A20 '^\[webrtc_template\]' "${AST_PJSIP_CONF}" | grep -q '^webrtc=yes'; then
+            success "pjsip.conf: webrtc_template patched with webrtc=yes/dtls_auto_generate_cert=yes"
+        else
+            error "Failed to patch webrtc_template automatically — add webrtc=yes and dtls_auto_generate_cert=yes to [webrtc_template] in ${AST_PJSIP_CONF} manually"
+        fi
+    fi
 else
     cp -f "${AST_PJSIP_CONF}" "${AST_PJSIP_CONF}.backup.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
 
@@ -173,6 +193,8 @@ disallow=all
 allow=opus
 allow=ulaw
 allow=alaw
+webrtc=yes
+dtls_auto_generate_cert=yes
 dtls_verify=no
 dtls_rekey=0
 ice_support=yes
@@ -295,6 +317,39 @@ success "Certbot deploy hook installed: ${DEPLOY_HOOK}"
 # =============================================================================
 section "STEP 8: HulkPhone WebRTC Softphone"
 
+# Primary source of truth: FrancoSmash73/Hulk- — this is the maintained repo
+# with the real hulkphone.v2.js and hulkphone.css (this installer previously
+# carried its own separate inline copy of hulkphone.php that had drifted from
+# the real one and didn't ship the JS/CSS at all, forcing a manual scp step
+# from a working server on every install). Clone it fresh each run so fixes
+# made upstream (e.g. to hulkphone.php) land automatically; fall back to the
+# bundled inline copy only if the clone can't happen (offline install).
+HULK_REPO="https://github.com/FrancoSmash73/Hulk-.git"
+HULK_CLONE_DIR="$(mktemp -d)"
+HULKPHONE_SOURCED_FROM_REPO=false
+
+mkdir -p "${HULKPHONE_DIR}"
+
+if command -v git &>/dev/null && git clone --depth 1 "${HULK_REPO}" "${HULK_CLONE_DIR}" &>/dev/null; then
+    cp -r "${HULK_CLONE_DIR}/hulkphone.php" "${HULK_CLONE_DIR}/css" \
+          "${HULK_CLONE_DIR}/js" "${HULK_CLONE_DIR}/images" \
+          "${HULK_CLONE_DIR}/sounds" "${HULKPHONE_DIR}/" 2>/dev/null
+    if [ -f "${HULKPHONE_DIR}/hulkphone.php" ] && [ -f "${HULKPHONE_DIR}/js/hulkphone.v2.js" ]; then
+        HULKPHONE_SOURCED_FROM_REPO=true
+        success "HulkPhone deployed from ${HULK_REPO} (includes hulkphone.v2.js and hulkphone.css)"
+    else
+        warning "Clone succeeded but expected files were missing — falling back to bundled copy"
+    fi
+else
+    warning "Could not clone ${HULK_REPO} (offline install?) — falling back to bundled copy"
+fi
+rm -rf "${HULK_CLONE_DIR}"
+
+if [ "${HULKPHONE_SOURCED_FROM_REPO}" = true ]; then
+    chown -R apache:apache "${HULKPHONE_DIR}" 2>/dev/null || chown -R www-data:www-data "${HULKPHONE_DIR}" 2>/dev/null || true
+    chmod -R 755 "${HULKPHONE_DIR}"
+else
+
 mkdir -p "${HULKPHONE_DIR}/js" "${HULKPHONE_DIR}/css" "${HULKPHONE_DIR}/sounds"
 
 # Download SIP.js 0.20.1 if not already present
@@ -314,6 +369,11 @@ else
 fi
 
 # Write hulkphone.php (PHP config injector + HTML shell)
+# FALLBACK ONLY — used when the Hulk- repo can't be cloned (offline install).
+# This inline copy has no SESSION/AUTOANSWER call-auto-dial polish beyond the
+# basics and does not ship hulkphone.v2.js/hulkphone.css (see NOTE below) —
+# it exists so the install doesn't hard-fail without network access, not as
+# a maintained alternative to the real repo.
 cat > "${HULKPHONE_DIR}/hulkphone.php" << 'HULKPHP'
 <?php
 /**
@@ -480,6 +540,37 @@ if [ -f "${SCRIPT_DIR}/configs/hulkphone/hulkphone.css" ]; then
     success "hulkphone.css copied from configs/"
 fi
 
+fi   # end fallback path (HULKPHONE_SOURCED_FROM_REPO = false)
+
+# =============================================================================
+# STEP 8b: Point ViciDial at HulkPhone (system_settings.webphone_url)
+# =============================================================================
+# This is the field vicidial.php's agent screen actually reads to build the
+# webphone iframe src (agc/vicidial.php: "SELECT webphone_url FROM
+# system_settings"). It is NOT phones.VICIDIAL_web_URL — that's an unrelated
+# call-event webhook field. Leaving this unset is silent: no error anywhere,
+# the phone panel just never renders. Set it here automatically instead of
+# only mentioning it in the post-install notes, since that's exactly the gap
+# that caused a webphone-not-appearing incident on a prior install.
+section "STEP 8b: system_settings.webphone_url"
+
+DB_HOST=$(grep  '^VARDB_server ' /etc/astguiclient.conf 2>/dev/null | awk '{print $3}')
+DB_USER=$(grep  '^VARDB_user '   /etc/astguiclient.conf 2>/dev/null | awk '{print $3}')
+DB_PASS=$(grep  '^VARDB_pass '   /etc/astguiclient.conf 2>/dev/null | awk '{print $3}')
+DB_NAME=$(grep  '^VARDB_database ' /etc/astguiclient.conf 2>/dev/null | awk '{print $3}')
+DB_HOST=${DB_HOST:-127.0.0.1}
+DB_NAME=${DB_NAME:-asterisk}
+
+if [ -n "$DB_USER" ] && [ -n "$DB_PASS" ]; then
+    mysql -h"$DB_HOST" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+        -e "UPDATE system_settings SET webphone_url='https://${DOMAIN}/hulkphone/hulkphone.php';" \
+        2>/dev/null \
+    && success "system_settings.webphone_url set to https://${DOMAIN}/hulkphone/hulkphone.php" \
+    || warning "Could not update system_settings.webphone_url — set it manually via Admin > System Settings"
+else
+    warning "Could not read DB credentials from /etc/astguiclient.conf — set system_settings.webphone_url manually"
+fi
+
 # =============================================================================
 # STEP 9: Firewall — open ports 8088 and 8089
 # =============================================================================
@@ -528,7 +619,9 @@ echo -e "  ${CYAN}Test with ext:${NC}  https://${DOMAIN}/hulkphone/hulkphone.php
 echo ""
 echo -e "  ${YELLOW}Next steps:${NC}"
 echo -e "  1. Add WebRTC agent phones to /etc/asterisk/pjsip-webrtc-agents.conf"
-echo -e "  2. Set phones.VICIDIAL_web_URL = https://${DOMAIN}/hulkphone/hulkphone.php"
-echo -e "  3. Set phones.is_webphone = 'Y' for each WebRTC phone in ViciDial DB"
-echo -e "  4. Verify: asterisk -rx \"module show like res_pjsip_transport_websocket\""
+echo -e "     (system_settings.webphone_url was already set for you above)"
+echo -e "  2. Set phones.is_webphone = 'Y' and phones.conf_secret = phones.pass"
+echo -e "     for each WebRTC phone in the ViciDial DB (HulkPhone auths with"
+echo -e "     conf_secret, so it must match the PJSIP auth password)"
+echo -e "  3. Verify: asterisk -rx \"module show like res_pjsip_transport_websocket\""
 echo ""
