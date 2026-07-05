@@ -615,8 +615,7 @@ for target_file in \
         continue
     fi
 
-    COUNT=$(grep -cF '/bin/ps -o "%p %a" --no-headers -A' "$target_file" 2>/dev/null || echo 0)
-    if [ "$COUNT" -gt 0 ]; then
+    if grep -qF '/bin/ps -o "%p %a" --no-headers -A' "$target_file" 2>/dev/null; then
         # Write fix to a temp script to avoid quoting/heredoc issues over SSH
         cat > /tmp/_vicidial_ps_fix.py << 'PYEOF'
 import sys
