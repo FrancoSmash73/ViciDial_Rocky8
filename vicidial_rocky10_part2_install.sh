@@ -1393,6 +1393,18 @@ if [ ! -d /var/www/html/vicidial ]; then
 warning "ViciDial web files not found in /var/www/html - check webroot setting"
 fi
 
+# SAFETY NET: install.pl (esp. when run non-interactively, e.g. --no-prompt with
+# no controlling TTY) can leave "VARserver_ip => " blank in astguiclient.conf.
+# ADMIN_keepalive_ALL.pl matches this server's DB row on VARserver_ip, so a blank
+# value means it NEVER generates pjsip-vicidial.conf / pjsip_wizard-vicidial.conf,
+# which breaks ALL of PJSIP (Asterisk logs "#include ... does not exist" and
+# refuses to parse pjsip.conf at all — not just WebRTC).
+if grep -q '^VARserver_ip => *$' /etc/astguiclient.conf 2>/dev/null; then
+    warning "astguiclient.conf: VARserver_ip is blank - patching to $SERVER_IP"
+    sed -i "s/^VARserver_ip => *\$/VARserver_ip => $SERVER_IP/" /etc/astguiclient.conf
+    success "astguiclient.conf: VARserver_ip set to $SERVER_IP"
+fi
+
 success "install.pl completed successfully"
 mark_step_complete "STEP_7"
 fi
