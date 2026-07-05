@@ -294,10 +294,10 @@ SIPJS="${HULKPHONE_DIR}/js/sip.js"
 if [ ! -f "${SIPJS}" ]; then
     log "Downloading SIP.js 0.20.1..."
     curl -fsSL \
-        "https://cdnjs.cloudflare.com/ajax/libs/sip.js/0.20.1/sip.js" \
+        "https://github.com/onsip/SIP.js/releases/download/0.20.1/sip-0.20.1.min.js" \
         -o "${SIPJS}" 2>/dev/null || \
     curl -fsSL \
-        "https://github.com/onsip/SIP.js/releases/download/0.20.1/sip.js" \
+        "https://cdn.jsdelivr.net/npm/sip.js@0.20.1/dist/sip.js" \
         -o "${SIPJS}" 2>/dev/null || \
     warning "Could not download SIP.js — copy sip.js manually to ${SIPJS}"
     [ -f "${SIPJS}" ] && success "SIP.js downloaded" || true
