@@ -3097,6 +3097,300 @@ systemctl enable --now vicidial-perl-sync.path && \
     warning "Failed to enable vicidial-perl-sync.path — re-run sync manually after updates"
 
 # ===========================================================================
+# ROCKY LINUX 10 COMPATIBILITY RE-PATCH SCRIPT + AUTO-TRIGGER PATH UNIT
+#
+# Every Rocky10 compatibility fix in this installer (DBI:MariaDB, ps-format
+# truncation, Asterisk::AGI.pm empty-digits, sip.conf websocket_enabled,
+# pjsip.conf webrtc_template) lives inside a skippable STEP_* block tied to
+# install.pl's own invocation. Re-running install.pl directly — manually,
+# over SSH, or via a future ViciDial upgrade — redeploys fresh unpatched
+# files and silently reverts ALL of them at once. This installs one
+# consolidated, idempotent script plus a systemd .path unit that watches
+# every file/dir install.pl touches and re-applies every patch automatically
+# within seconds, with no manual "did I remember to re-patch" step ever
+# required again.
+# ===========================================================================
+section "ROCKY LINUX 10 AUTO-REPATCH SCRIPT + PATH UNIT"
+
+log "Installing /usr/local/sbin/vicidial-rocky10-repatch..."
+cat > /usr/local/sbin/vicidial-rocky10-repatch << 'REPATCH_SCRIPT_EOF'
+#!/usr/bin/env bash
+# vicidial-rocky10-repatch
+#
+# Re-applies every Rocky Linux 10 / AlmaLinux 10 compatibility patch that
+# ViciDial's own install.pl and stock sample configs do NOT carry, and that
+# a fresh `install.pl` re-run (manual or via a ViciDial upgrade) will silently
+# revert. Idempotent — safe to run any number of times, changes nothing if
+# everything is already patched.
+#
+# Run manually any time after re-running install.pl:
+#   /usr/local/sbin/vicidial-rocky10-repatch
+#
+# Also triggered automatically by vicidial-rocky10-repatch.path whenever any
+# of the watched files/directories change.
+#
+# Repo: https://github.com/FrancoSmash73/vicidial-rocky10
+
+set -uo pipefail
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+log()     { echo -e "${CYAN}[INFO]${NC} $*"; }
+success() { echo -e "${GREEN}[OK]${NC}   $*"; }
+warning() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+
+CHANGED=0
+ASTERISK_CONF_CHANGED=0
+
+# ---------------------------------------------------------------------------
+# 1. DBI:MariaDB + mysql_insertid patch
+#    ViciDial ships DBI:mysql: / mysql_insertid everywhere. Rocky 10 only has
+#    DBD::MariaDB by default (DBD::mysql is a manually-pinned 4.052 fallback
+#    for legacy AGI scripts). Without this, main scripts fail to connect and
+#    AGI scripts fail silently on the DB connect line.
+# ---------------------------------------------------------------------------
+_patch_dbi_dir() {
+    local DIR="$1" LABEL="$2" PATTERN="$3"
+    [ -d "$DIR" ] || { warning "$LABEL ($DIR) not found - skipping"; return; }
+    local FILES
+    FILES=$(find "$DIR" -maxdepth 1 -type f -name "$PATTERN" 2>/dev/null)
+    [ -z "$FILES" ] && { warning "no $PATTERN files in $LABEL - skipping"; return; }
+
+    local hit=0
+    while IFS= read -r f; do
+        if grep -qE 'DBI:mysql:|DBI:mariadb:|DBD::mysql|mysql_insertid' "$f" 2>/dev/null; then
+            hit=1
+            break
+        fi
+    done <<< "$FILES"
+
+    if [ "$hit" -eq 0 ]; then
+        log "$LABEL: already patched"
+        return
+    fi
+
+    find "$DIR" -maxdepth 1 -type f -name "$PATTERN" -exec sed -i \
+        -e 's/DBI:mysql:/DBI:MariaDB:/g' \
+        -e 's/DBI:mariadb:/DBI:MariaDB:/g' \
+        -e 's/DBD::mysql/DBD::MariaDB/g' \
+        -e 's/mysql_insertid/mariadb_insertid/g' \
+        {} \; 2>/dev/null
+    success "$LABEL: DBI:MariaDB + mariadb_insertid patch applied"
+    CHANGED=1
+}
+_patch_dbi_dir "/usr/share/astguiclient" "installed ViciDial scripts" "*.pl"
+_patch_dbi_dir "/var/lib/asterisk/agi-bin" "AGI scripts" "*.agi"
+
+# ---------------------------------------------------------------------------
+# 2. ps-truncation patch
+#    procps-ng 4.0.4 on Rocky 10 truncates `ps -o "%p %a"` output to ~30
+#    chars. These 4 scripts use that to detect sibling/listener processes;
+#    a truncated match makes them think the AMI listener (or themselves) is
+#    dead/duplicated, and they exit immediately every time the keepalive
+#    timer spawns them.
+# ---------------------------------------------------------------------------
+PS_OLD='/bin/ps -o "%p %a" --no-headers -A'
+PS_NEW='/bin/ps -o "pid,args" --no-headers -A'
+for f in \
+    /usr/share/astguiclient/ADMIN_keepalive_ALL.pl \
+    /usr/share/astguiclient/AST_manager_send.pl \
+    /usr/share/astguiclient/AST_VDremote_agents.pl \
+    /usr/share/astguiclient/AST_VDauto_dial.pl; do
+    [ -f "$f" ] || { warning "$f not found - skipping"; continue; }
+    if grep -qF "$PS_OLD" "$f" 2>/dev/null; then
+        sed -i "s|$PS_OLD|$PS_NEW|g" "$f"
+        success "$(basename "$f"): ps-truncation patch applied"
+        CHANGED=1
+    else
+        log "$(basename "$f"): already patched"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# 3. Asterisk::AGI.pm empty-digits patch
+#    stream_file($file, "") sends "STREAM FILE filename " with no
+#    escape_digits -> Asterisk returns 520, survey audio never plays
+#    (SVYHU calls, length_in_sec=0).
+# ---------------------------------------------------------------------------
+PERL_VER=$(perl -e 'printf "%vd", $^V' | cut -d. -f1,2)
+for f in \
+    "/usr/local/share/perl5/${PERL_VER}/Asterisk/AGI.pm" \
+    /usr/share/astguiclient/libs/Asterisk/AGI.pm; do
+    [ -f "$f" ] || { warning "$f not found - skipping"; continue; }
+    if grep -qF "eq ''" "$f" 2>/dev/null; then
+        log "$f: already patched"
+    else
+        sed -i "s/\$digits = '\"\"' if (!defined(\$digits));/\$digits = '\"\"' if (!defined(\$digits) || \$digits eq '');/g" "$f"
+        success "$f: empty-digits patch applied"
+        CHANGED=1
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# 4. sip.conf websocket_enabled=false
+#    install.pl's sample sip.conf ships websocket_enabled=true, which makes
+#    chan_sip register the "sip" websocket sub-protocol first, so
+#    res_pjsip_transport_websocket.so declines to load -> WebRTC softphones
+#    never register.
+# ---------------------------------------------------------------------------
+SIP_CONF="/etc/asterisk/sip.conf"
+if [ -f "$SIP_CONF" ]; then
+    if grep -q '^websocket_enabled=true' "$SIP_CONF"; then
+        sed -i 's/^websocket_enabled=true/websocket_enabled=false/' "$SIP_CONF"
+        success "sip.conf: websocket_enabled=false applied"
+        CHANGED=1; ASTERISK_CONF_CHANGED=1
+    elif grep -q '^websocket_enabled=false' "$SIP_CONF"; then
+        log "sip.conf: websocket_enabled already false"
+    else
+        sed -i '/^\[general\]/a websocket_enabled=false' "$SIP_CONF"
+        success "sip.conf: websocket_enabled=false added to [general]"
+        CHANGED=1; ASTERISK_CONF_CHANGED=1
+    fi
+else
+    warning "sip.conf not found - skipping"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. pjsip.conf webrtc_template + agents include
+#    ViciDial's stock pjsip.conf sample already ships a bare [transport-wss]
+#    stanza, so a naive "does transport-wss exist" check thinks WebRTC is
+#    already configured and never adds the actual endpoint template or the
+#    agents-conf include. Only applied if this server has WebRTC set up
+#    (i.e. HulkPhone was deployed) so plain voice-only installs are untouched.
+# ---------------------------------------------------------------------------
+PJSIP_CONF="/etc/asterisk/pjsip.conf"
+AGENTS_CONF="/etc/asterisk/pjsip-webrtc-agents.conf"
+if [ -f "$PJSIP_CONF" ] && [ -f "$AGENTS_CONF" ]; then
+    if grep -q 'webrtc_template' "$PJSIP_CONF" 2>/dev/null; then
+        log "pjsip.conf: already has webrtc_template"
+    else
+        if ! grep -q '^\[transport-wss\]' "$PJSIP_CONF" 2>/dev/null; then
+            cat >> "$PJSIP_CONF" << 'PJSIPTRANSPORT'
+
+[transport-wss]
+type                            = transport
+protocol                        = wss
+bind                            = 0.0.0.0
+PJSIPTRANSPORT
+        fi
+        cat >> "$PJSIP_CONF" << 'PJSIPWSS'
+
+; --- WebRTC/HulkPhone endpoint template ---
+[webrtc_template](!)
+type=endpoint
+transport=transport-wss
+context=default
+disallow=all
+allow=opus
+allow=ulaw
+allow=alaw
+dtls_verify=no
+dtls_rekey=0
+ice_support=yes
+media_use_received_transport=yes
+rtcp_mux=yes
+use_avpf=yes
+media_encryption=dtls
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=yes
+
+#include "pjsip-webrtc-agents.conf"
+PJSIPWSS
+        success "pjsip.conf: webrtc_template + agents include applied"
+        CHANGED=1; ASTERISK_CONF_CHANGED=1
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# 6. VARserver_ip blank check
+#    install.pl run non-interactively (--no-prompt, no controlling TTY) can
+#    leave "VARserver_ip => " blank in astguiclient.conf even when
+#    --server_ip is passed on the CLI. ADMIN_keepalive_ALL.pl matches this
+#    server's DB row on VARserver_ip, so a blank value means it NEVER
+#    regenerates pjsip-vicidial.conf / pjsip_wizard-vicidial.conf, and
+#    Asterisk fails to parse pjsip.conf at all ("#include ... does not
+#    exist") -- taking down ALL of PJSIP, not just WebRTC.
+# ---------------------------------------------------------------------------
+CONF="/etc/astguiclient.conf"
+if [ -f "$CONF" ]; then
+    if grep -q '^VARserver_ip => *$' "$CONF" 2>/dev/null; then
+        DETECTED_IP=$(hostname -I | awk '{print $1}')
+        sed -i "s/^VARserver_ip => *\$/VARserver_ip => ${DETECTED_IP}/" "$CONF"
+        warning "astguiclient.conf: VARserver_ip was blank - set to ${DETECTED_IP}"
+        CHANGED=1
+    else
+        log "astguiclient.conf: VARserver_ip already set"
+    fi
+else
+    warning "$CONF not found - skipping"
+fi
+
+# ---------------------------------------------------------------------------
+# Reload affected services if anything changed.
+# Uses targeted module reloads, NOT a full "core restart now" — this can run
+# unattended (via the .path unit) at any time of day and must not drop live
+# calls. sip.conf/pjsip.conf changes only need a reload; DBI/ps/AGI.pm
+# patches take effect on the next script invocation with no Asterisk action
+# needed at all.
+# ---------------------------------------------------------------------------
+if [ "$ASTERISK_CONF_CHANGED" -eq 1 ] && command -v asterisk &>/dev/null && asterisk -rx "core show version" &>/dev/null; then
+    warning "sip.conf/pjsip.conf changed - reloading (not restarting) Asterisk"
+    asterisk -rx "sip reload" 2>/dev/null || true
+    asterisk -rx "pjsip reload" 2>/dev/null || true
+fi
+
+if [ "$CHANGED" -eq 1 ]; then
+    success "vicidial-rocky10-repatch: done (changes applied)"
+else
+    success "vicidial-rocky10-repatch: done (already up to date, no changes)"
+fi
+REPATCH_SCRIPT_EOF
+chmod 755 /usr/local/sbin/vicidial-rocky10-repatch
+success "Repatch script installed at /usr/local/sbin/vicidial-rocky10-repatch"
+
+log "Installing vicidial-rocky10-repatch systemd service + path unit..."
+cat > /etc/systemd/system/vicidial-rocky10-repatch.service << 'REPATCH_SERVICE_EOF'
+[Unit]
+Description=Re-apply Rocky Linux 10 compatibility patches to ViciDial
+Documentation=https://github.com/FrancoSmash73/vicidial-rocky10
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vicidial-rocky10-repatch
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vicidial-rocky10-repatch
+REPATCH_SERVICE_EOF
+
+cat > /etc/systemd/system/vicidial-rocky10-repatch.path << 'REPATCH_PATH_EOF'
+[Unit]
+Description=Watch ViciDial files for changes (auto re-apply Rocky Linux 10 patches)
+Documentation=https://github.com/FrancoSmash73/vicidial-rocky10
+
+[Path]
+# Fires whenever install.pl (manual re-run or ViciDial upgrade) rewrites any
+# of these — which is exactly when the DBI:MariaDB, ps-truncation, AGI.pm,
+# sip.conf, and pjsip.conf patches get silently reverted.
+PathChanged=/usr/share/astguiclient
+PathChanged=/var/lib/asterisk/agi-bin
+PathChanged=/etc/astguiclient.conf
+PathChanged=/etc/asterisk/sip.conf
+PathChanged=/etc/asterisk/pjsip.conf
+
+[Install]
+WantedBy=multi-user.target
+REPATCH_PATH_EOF
+
+systemctl daemon-reload
+systemctl enable --now vicidial-rocky10-repatch.path && \
+    success "vicidial-rocky10-repatch.path enabled (auto-repatch on install.pl re-runs/upgrades)" || \
+    warning "Failed to enable vicidial-rocky10-repatch.path — re-run /usr/local/sbin/vicidial-rocky10-repatch manually after any install.pl re-run"
+
+# Run once now so a fresh install starts from a fully-patched state
+/usr/local/sbin/vicidial-rocky10-repatch || true
+
+# ===========================================================================
 # CLEANUP (FIX #8)
 # ===========================================================================
 section "CLEANUP"

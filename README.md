@@ -59,6 +59,19 @@ These issues are unique to Rocky Linux 10 and are automatically fixed by the scr
 
 See `vicidial_rocky10_postinstall_fix_guide_p2.md` for full technical details.
 
+### Re-running install.pl reverts these patches — that's handled automatically
+
+`install.pl` redeploys fresh, unpatched files every time it runs, silently undoing the
+DBI:MariaDB, ps-truncation, `Asterisk::AGI.pm`, `sip.conf`, and `pjsip.conf` fixes above.
+Part 2 installs `/usr/local/sbin/vicidial-rocky10-repatch` plus a systemd `.path` unit
+(`vicidial-rocky10-repatch.path`) that watches every file/directory `install.pl` touches
+and re-applies all of these patches automatically within seconds — no manual re-patch
+step needed after a manual `install.pl` re-run or a future ViciDial upgrade.
+
+Run it by hand any time with: `/usr/local/sbin/vicidial-rocky10-repatch` (idempotent,
+safe to run repeatedly). Check `systemctl status vicidial-rocky10-repatch.path` if a
+patch ever seems to not have re-applied.
+
 ---
 
 ## Architecture: Daemons vs Cron Jobs
