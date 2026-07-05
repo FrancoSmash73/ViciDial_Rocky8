@@ -143,18 +143,26 @@ fi
 # =============================================================================
 section "STEP 4: PJSIP WebSocket Transport"
 
-if grep -q 'transport-wss' "${AST_PJSIP_CONF}" 2>/dev/null; then
-    success "pjsip.conf already has transport-wss"
+if grep -q 'webrtc_template' "${AST_PJSIP_CONF}" 2>/dev/null; then
+    success "pjsip.conf already has webrtc_template"
 else
     cp -f "${AST_PJSIP_CONF}" "${AST_PJSIP_CONF}.backup.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
 
-    # Add transport-wss and webrtc_template after [transport-udp] block
-    cat >> "${AST_PJSIP_CONF}" << 'PJSIPWSS'
+    # ViciDial's stock pjsip.conf sample already ships a bare [transport-wss]
+    # stanza, so only add it here if it's genuinely missing — a duplicate
+    # section would be redundant/confusing in the config.
+    if ! grep -q '^\[transport-wss\]' "${AST_PJSIP_CONF}" 2>/dev/null; then
+        cat >> "${AST_PJSIP_CONF}" << 'PJSIPTRANSPORT'
 
 [transport-wss]
 type                            = transport
 protocol                        = wss
 bind                            = 0.0.0.0
+PJSIPTRANSPORT
+    fi
+
+    # Add webrtc_template and the agents-conf include
+    cat >> "${AST_PJSIP_CONF}" << 'PJSIPWSS'
 
 ; --- WebRTC/HulkPhone endpoint template ---
 [webrtc_template](!)
