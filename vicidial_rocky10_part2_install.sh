@@ -369,7 +369,7 @@ fi
 # ---------------------------------------------------------------------------
 # FIX #1: CONSOLIDATED CREDENTIAL LOADING FROM PART 1
 # ---------------------------------------------------------------------------
-PART1_MARKER="/root/.vicidial_part1_progress"
+PART1_MARKER="/root/vicidial_ultimate_install.conf"
 CREDS_FILE="/root/.vicidial_ultimate_credentials"
 
 if [ ! -f "$PART1_MARKER" ]; then
