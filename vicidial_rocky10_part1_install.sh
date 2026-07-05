@@ -904,8 +904,20 @@ EOF
 echo "========================================="
 echo "  VICIDIAL SERVER STATUS - $(date '+%Y-%m-%d %H:%M:%S')"
 echo "========================================="
+
+# Asterisk runs in a GNU screen session on this install, NOT systemd --
+# asterisk.service is intentionally masked (Part 2) to prevent a second
+# instance from binding UDP 5060 alongside the screen-managed process.
+# `systemctl is-active asterisk` will ALWAYS show inactive/masked here even
+# when Asterisk is perfectly healthy, so check the screen session + a live
+# CLI response instead.
+if screen -ls 2>/dev/null | grep -q '\.asterisk\b' && asterisk -rx "core show version" 2>/dev/null | grep -q "^Asterisk "; then
+    printf "  %-35s [\e[32m OK \e[0m]\n" "asterisk"
+else
+    printf "  %-35s [\e[31mFAIL\e[0m] (not running in screen session)\n" "asterisk"
+fi
+
 services=(
-    "asterisk"
     "mariadb"
     "httpd"
     "php-fpm"
