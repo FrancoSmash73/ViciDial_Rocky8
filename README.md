@@ -5,6 +5,32 @@
 
 ---
 
+
+## PJSIP-only posture (⚠️ NEEDS VALIDATION)
+
+This repo is moving toward PJSIP-only: chan_sip is deprecated in Asterisk 18/20
+and **removed in Asterisk 21**, it is the largest attack surface on a ViciDial
+box (udp/5060), and ViciDial's webphone path is PJSIP/WebRTC anyway.
+
+Two helpers:
+
+| Script | Purpose |
+|---|---|
+| `vicidial_pjsip_phone_sync.sh` | Generate PJSIP endpoint/auth/aor blocks from the `phones` table. ViciDial never generates these itself. Uses `phones.conf_secret` (Registration Password) — never `phones.pass`. |
+| `vicidial_chan_sip_remove.sh` | Audit whether chan_sip still has a dependency; remove it only if clean. Regenerates the dialplan first so `Dial(SIP/x)` becomes `Dial(PJSIP/x)`. |
+
+Both default to a read-only `--check`. See
+[docs/PJSIP-WEBPHONE-TROUBLESHOOTING.md](docs/PJSIP-WEBPHONE-TROUBLESHOOTING.md).
+
+> ⚠️ **Not yet validated end-to-end.** Every layer has been verified on a live
+> Rocky 10 box — endpoints load, passwords match `conf_secret`, WSS is bound on
+> 8089 with a valid cert, the dialplan resolves to `PJSIP/` — but **no browser
+> webphone has been observed completing a WebRTC registration** on that box yet.
+> Treat PJSIP-only as recommended-but-unproven until someone confirms an agent
+> login. Roll back by re-activating chan_sip and setting `phones.protocol='SIP'`,
+> then `servers.rebuild_conf_files='Y'` to regenerate the dialplan.
+
+
 ## Scripts
 
 | Script | Purpose |
