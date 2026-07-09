@@ -874,7 +874,25 @@ EOF
     # Fail2ban: SSH, Asterisk, Apache protection
     log "Installing fail2ban for security hardening..."
     dnf install -y fail2ban fail2ban-systemd
-    cat > /etc/fail2ban/jail.d/vicidial.conf << 'EOF'
+
+    # --- TRAP 0: file extension decides who wins -----------------------------
+    # fail2ban reads, in order (fail2ban/client/configreader.py):
+    #     jail.conf -> sorted(jail.d/*.conf) -> jail.local -> sorted(jail.d/*.local)
+    # So EVERY .local overrides EVERY .conf, and among .local files the
+    # alphabetically last one wins. A jail.d/vicidial.conf is therefore
+    # silently overridden by any asterisk.local / 00-*.local a distro, package
+    # or admin drops in. Ship a .local that sorts last instead.
+    F2B_JAIL="/etc/fail2ban/jail.d/zz-vicidial.local"
+
+    # Retire the legacy .conf from earlier versions of this installer, or its
+    # settings will linger and confuse the next person who greps for them.
+    if [ -f /etc/fail2ban/jail.d/vicidial.conf ]; then
+        mv /etc/fail2ban/jail.d/vicidial.conf \
+           "/etc/fail2ban/jail.d/vicidial.conf.retired.$(date +%Y%m%d-%H%M%S)"
+        warning "moved legacy jail.d/vicidial.conf aside (superseded by zz-vicidial.local)"
+    fi
+
+    cat > "$F2B_JAIL" << 'EOF'
 [DEFAULT]
 # --- TRAP 1: banaction ---------------------------------------------------
 # The distro default is banaction = iptables-multiport. On a firewalld host
@@ -921,7 +939,7 @@ maxretry = 5
 bantime  = 3600
 findtime = 600
 EOF
-    fail2ban-client -t >/dev/null 2>&1 || warning "fail2ban config test failed — review /etc/fail2ban/jail.d/vicidial.conf"
+    fail2ban-client -t >/dev/null 2>&1 || warning "fail2ban config test failed — review $F2B_JAIL"
     systemctl enable --now fail2ban
     sleep 3
 
@@ -934,6 +952,13 @@ EOF
             success "fail2ban jail '$_jail' is reading its logfile"
         fi
     done
+    # `Currently banned` is not proof of enforcement -- a jail can report a ban
+    # while the firewall drops nothing. fail2ban's own table is the tell.
+    if nft list tables 2>/dev/null | grep -q "f2b-table"; then
+        success "fail2ban nft table present (bans survive firewall-cmd --reload)"
+    else
+        info "f2b-table appears on first ban; verify with: nft list ruleset | grep <banned-ip>"
+    fi
     success "fail2ban installed with SSH/Asterisk/Apache jails (nftables banaction, file backend)"
 
     # ViciDial server status script

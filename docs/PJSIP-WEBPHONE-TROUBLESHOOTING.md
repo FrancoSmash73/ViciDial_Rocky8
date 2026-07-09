@@ -273,7 +273,20 @@ If `fail2ban-regex` matches lines but the jail's `Total failed` is 0, the filter
 backend is the problem.
 
 **Fix** — set `backend` *per jail* (jail-level beats the `[DEFAULT]` drop-in). In
-`/etc/fail2ban/jail.d/vicidial.conf`:
+`/etc/fail2ban/jail.d/zz-vicidial.local`:
+
+> ⚠️ **The file extension decides who wins.** fail2ban reads, in order
+> (`fail2ban/client/configreader.py`):
+> `jail.conf` → `sorted(jail.d/*.conf)` → `jail.local` → `sorted(jail.d/*.local)`
+>
+> So **every `.local` overrides every `.conf`**, and among `.local` files the alphabetically last one
+> wins. A `jail.d/vicidial.conf` is silently overridden by any `asterisk.local` a distro, package or
+> admin drops in — your settings are present, parsed, and ignored. Use a `.local` that sorts last.
+> Confirm what actually took effect — never by reading the file you wrote:
+> ```bash
+> fail2ban-client get asterisk actions   # e.g. "nftables-multiport-tcp, nftables-multiport-udp"
+> nft list tables                        # expect: table inet f2b-table
+> ```
 ```ini
 [DEFAULT]
 # See "second trap" below — required on any firewalld host.
