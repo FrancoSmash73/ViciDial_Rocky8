@@ -132,7 +132,7 @@ mysql -u cron -p'<DB_PASS>' -D asterisk -e \
 ```
 
 > Why this bites: on many phones `pass` and `conf_secret` happen to hold the *same* value, so a
-> wrong copy silently works. The trap only springs where they differ. On Server B, ext `20001` is
+> wrong copy silently works. The trap only springs where they differ. On one live server, a single extension was
 > exactly that case — its `pass` is a human-chosen login password while its `conf_secret` is a
 > generated SIP secret — so copying `pass` there breaks a working webphone. Verify per-extension:
 > ```bash
