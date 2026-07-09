@@ -908,7 +908,11 @@ backend  = polling            # MUST override backend=systemd; asterisk logs to 
 maxretry = 5
 bantime  = 86400
 findtime = 600
+# Which file Asterisk writes depends on logger.conf. Some installs log security
+# events to `full`, others to `messages` -- listing both means the jail is
+# correct either way. fail2ban ignores logpath entries that do not exist.
 logpath  = /var/log/asterisk/messages
+           /var/log/asterisk/full
 
 [apache-auth]
 enabled  = true
