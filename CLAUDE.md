@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | **Asterisk (this server)** | `172.235.34.224` | Handles all SIP/RTP, AGI scripts, audio playback |
 | **DB / Web (ViciDial Admin)** | `172.239.67.94` | MariaDB + Apache + ViciDial PHP frontend |
 
-- **Asterisk version:** `18.21.0-vici`
+- **Asterisk version:** `20.18.2` (plain upstream from asterisk.org; ViciDial publishes no 20.x-vici tarball and no Asterisk-20 patch set)
 - **OS:** Rocky Linux 10
 - **SSH port:** `1951` (not 22)
 - **ViciDial config:** `/etc/astguiclient.conf`

@@ -1,15 +1,17 @@
 #!/bin/bash
 ################################################################################
 # VICIDIAL ULTIMATE INSTALLATION - PART 2: v11.2
-# VoIP Stack: DAHDI 3.4.0, LibPRI 1.6.1, Asterisk 18 (ViciDial-patched)
+# VoIP Stack: DAHDI 3.4.0, LibPRI 1.6.1, Asterisk 20.18.2 (plain upstream)
 # ViciDial + ConfBridge + CRITICAL Process Management
 ################################################################################
 # Date: 2026-02-16
 # Updated: 2026-02-25
 # Author: FrancoSmash73 + Claude (Anthropic)
 # Target: Rocky Linux 10.x / AlmaLinux 10.x
-# Asterisk: 18.21.0-vici (from download.vicidial.com) with fallback to
-#           plain 18.26.4 + manual ViciDial patches from asterisk.org
+# Asterisk: 20.18.2 -- PLAIN upstream from asterisk.org, no ViciDial patches.
+#           ViciDial publishes no 20.x-vici tarball and no Asterisk-20 patch
+#           set; a production box runs plain 20.18.2 + ViciDial 2.14b0.5 +
+#           conf_engine=CONFBRIDGE. Override with ASTERISK_SERIES=x.y.z
 # DAHDI: 3.4.0 (Patched Linux + Patched Tools from FrancoSmash73)
 #
 # NEW IN v11.2 (2026-02-25):
@@ -91,6 +93,14 @@
 #################################################
 
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Asterisk version. Pinned to 20.18.2 to match the production reference box.
+# Asterisk 20 is LTS; chan_sip is deprecated here and REMOVED in Asterisk 21.
+# ViciDial ships no pre-patched tarball and no patch set for 20 -- we build
+# plain upstream (see STEP 3).
+# ---------------------------------------------------------------------------
+ASTERISK_SERIES="${ASTERISK_SERIES:-20.18.2}"
 
 # ---------------------------------------------------------------------------
 # ERROR HANDLER
@@ -431,7 +441,7 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                                                              ║"
 echo "║        ViciDial ULTIMATE Installation - Part 2               ║"
-echo "║      VoIP Stack, Asterisk 18 (ViciDial-patched) + ConfBridge ║"
+echo "║      VoIP Stack, Asterisk 20 (plain upstream) + ConfBridge   ║"
 echo "║                                                              ║"
 echo "║             Version 11.0 FINAL                               ║"
 echo "║   Rocky Linux 10.x / AlmaLinux 10.x                        ║"
@@ -866,49 +876,31 @@ mark_step_complete "STEP_2"
 fi
 
 # ===========================================================================
-# STEP 3: DOWNLOAD & PATCH ASTERISK 18 (VICI)
+# STEP 3: DOWNLOAD & BUILD ASTERISK 20 (PLAIN UPSTREAM)
 # ===========================================================================
-section "STEP 3/22: DOWNLOADING & PATCHING ASTERISK 18 (VICI)"
-check_step "STEP_3" "3/22" "Asterisk 18 Download & ViciDial Patch"
+section "STEP 3/22: DOWNLOADING ASTERISK ${ASTERISK_SERIES} (plain upstream)"
+check_step "STEP_3" "3/22" "Asterisk ${ASTERISK_SERIES} Download"
 
 if [ "$SKIP_STEP" = false ]; then
 mkdir -p /usr/src/asterisk
 cd /usr/src/asterisk
 
 AST_BUILD_DIR=""
-VICI_TARBALL="asterisk-18.21.0-vici.tar.gz"
-PLAIN_TARBALL="asterisk-18.26.4.tar.gz"
-VICI_DIR="asterisk-18.21.0-vici"
-PLAIN_DIR="asterisk-18.26.4"
+PLAIN_TARBALL="asterisk-${ASTERISK_SERIES}.tar.gz"
+PLAIN_DIR="asterisk-${ASTERISK_SERIES}"
 
-rm -rf "$VICI_TARBALL" "$VICI_DIR" "$PLAIN_TARBALL" "$PLAIN_DIR"
+rm -rf "$PLAIN_TARBALL" "$PLAIN_DIR"
 
-log "Phase 1: Trying asterisk-18.21.0-vici from download.vicidial.com..."
+# ViciDial publishes NO pre-patched tarball for Asterisk 20 -- the newest is
+# asterisk-18.21.0-vici -- and no Asterisk-20 patch directory exists. Build
+# plain upstream. This mirrors a production box running plain 20.18.2 with
+# ViciDial 2.14b0.5 and conf_engine=CONFBRIDGE.
+log "Downloading plain asterisk-${ASTERISK_SERIES} from asterisk.org..."
 DOWNLOAD_OK=false
 for attempt in 1 2 3; do
 log "Download attempt $attempt/3..."
 if wget --tries=2 --timeout=60 -q --show-progress \
-"http://download.vicidial.com/required-apps/$VICI_TARBALL"; then
-DOWNLOAD_OK=true
-success "Downloaded $VICI_TARBALL"
-break
-fi
-warning "Attempt $attempt failed"
-sleep 5
-done
-
-if [ "$DOWNLOAD_OK" = true ]; then
-log "Extracting $VICI_TARBALL..."
-tar -xzvf "$VICI_TARBALL"
-AST_BUILD_DIR="/usr/src/asterisk/$VICI_DIR"
-info "Using pre-patched ViciDial tarball: $VICI_DIR"
-else
-warning "ViciDial tarball unavailable. Falling back to plain asterisk-18.26.4 + manual patches."
-log "Phase 2: Downloading plain asterisk-18.26.4 from asterisk.org..."
-for attempt in 1 2 3; do
-log "Download attempt $attempt/3..."
-if wget --tries=2 --timeout=60 -q --show-progress \
-"https://downloads.asterisk.org/pub/telephony/asterisk/old-releases/$PLAIN_TARBALL"; then
+"https://downloads.asterisk.org/pub/telephony/asterisk/releases/$PLAIN_TARBALL"; then
 DOWNLOAD_OK=true
 success "Downloaded $PLAIN_TARBALL"
 break
@@ -916,14 +908,14 @@ fi
 warning "Attempt $attempt failed"
 sleep 5
 done
+
 if [ "$DOWNLOAD_OK" = false ]; then
-error "Failed to download Asterisk from both ViciDial and asterisk.org. Check network."
+error "Failed to download $PLAIN_TARBALL from asterisk.org. Check network."
 fi
+
 log "Extracting $PLAIN_TARBALL..."
-tar -xzvf "$PLAIN_TARBALL"
+tar -xzf "$PLAIN_TARBALL"
 AST_BUILD_DIR="/usr/src/asterisk/$PLAIN_DIR"
-info "Using plain tarball: $PLAIN_DIR - ViciDial patches will be applied next"
-fi
 
 if [ ! -d "$AST_BUILD_DIR" ]; then
 error "Asterisk source directory not found after extraction: $AST_BUILD_DIR"
@@ -933,41 +925,26 @@ echo "AST_BUILD_DIR=$AST_BUILD_DIR" >> "$INSTALL_MARKER"
 
 cd "$AST_BUILD_DIR"
 
-log "Downloading ViciDial Asterisk 18 patches from download.vicidial.com..."
+# NO PATCHES.
+#
+# ViciDial's five Asterisk patches (amd_stats, iax_peer_status, sip_peer_status,
+# timeout_reset_dial_app, timeout_reset_dial_core) exist ONLY for Asterisk 18 --
+# every one 404s under .../asterisk-patches/Asterisk-20/. There is no upstream
+# Asterisk-20 patch set.
+#
+# They are also unnecessary for this build:
+#   sip_peer_status  -> patches channels/chan_sip.c, and chan_sip is noloaded
+#   iax_peer_status  -> patches chan_iax2.c; IAX is unused
+#   amd_stats        -> optional AMD statistics
+#   timeout_reset_*  -> optional dial-timeout behaviour
+#
+# A production box runs plain 20.18.2 with none of them applied. If you rely on
+# AMD statistics or ViciDial's dial-timeout semantics, port those two patches
+# yourself and validate on a disposable VM first -- do not assume they apply.
+log "Skipping ViciDial patches: none published for Asterisk 20 (see comment above)"
 
-PATCH_BASE="http://download.vicidial.com/asterisk-patches/Asterisk-18"
-for patch_file in \
-amd_stats-18.patch \
-iax_peer_status-18.patch \
-sip_peer_status-18.patch \
-timeout_reset_dial_app-18.patch \
-timeout_reset_dial_core-18.patch; do
-if wget --tries=3 --timeout=30 -q "$PATCH_BASE/$patch_file" 2>/dev/null; then
-success "Downloaded: $patch_file"
-else
-warning "Could not download $patch_file (will skip patch)"
-fi
-done
 
-log "Downloading ConfBridge enter/leave sound headers..."
-cd apps/
-for hfile in enter.h leave.h; do
-if wget --tries=3 --timeout=30 -q "$PATCH_BASE/$hfile" 2>/dev/null; then
-success "Downloaded: $hfile"
-else
-warning "Could not download $hfile (ConfBridge sounds may be absent)"
-fi
-done
-cd ..
-
-log "Applying ViciDial patches (skipped silently if already applied)..."
-[ -f amd_stats-18.patch ]              && { patch -p0 --dry-run < amd_stats-18.patch              apps/app_amd.c      >/dev/n     ull 2>&1 && patch -p0 < amd_stats-18.patch              apps/app_amd.c      || warning "amd_stats patch: skipped (already applied      or hunk mismatch)"; }
-[ -f iax_peer_status-18.patch ]        && { patch -p0 --dry-run < iax_peer_status-18.patch        channels/chan_iax2.c >/dev/     null 2>&1 && patch -p0 < iax_peer_status-18.patch        channels/chan_iax2.c || warning "iax_peer_status patch: skipped"; }
-[ -f sip_peer_status-18.patch ]        && { patch -p0 --dry-run < sip_peer_status-18.patch        channels/chan_sip.c  >/dev/     null 2>&1 && patch -p0 < sip_peer_status-18.patch        channels/chan_sip.c  || warning "sip_peer_status patch: skipped"; }
-[ -f timeout_reset_dial_app-18.patch ] && { patch -p0 --dry-run < timeout_reset_dial_app-18.patch apps/app_dial.c     >/dev/n     ull 2>&1 && patch -p0 < timeout_reset_dial_app-18.patch apps/app_dial.c     || warning "timeout_reset_dial_app patch: skipped"; }
-[ -f timeout_reset_dial_core-18.patch ]&& { patch -p0 --dry-run < timeout_reset_dial_core-18.patch main/dial.c        >/dev/n     ull 2>&1 && patch -p0 < timeout_reset_dial_core-18.patch main/dial.c        || warning "timeout_reset_dial_core patch: skipped";      }
-
-success "Asterisk 18 source ready in: $AST_BUILD_DIR"
+success "Asterisk ${ASTERISK_SERIES} source ready in: $AST_BUILD_DIR"
 mark_step_complete "STEP_3"
 fi
 
@@ -980,7 +957,7 @@ check_step "STEP_4" "4/22" "Asterisk Compile & Install"
 if [ "$SKIP_STEP" = false ]; then
 AST_BUILD_DIR=$(grep "^AST_BUILD_DIR=" "$INSTALL_MARKER" 2>/dev/null | cut -d'=' -f2-)
 if [ -z "$AST_BUILD_DIR" ] || [ ! -d "$AST_BUILD_DIR" ]; then
-AST_BUILD_DIR=$(find /usr/src/asterisk -maxdepth 1 -type d -name 'asterisk-18*' | sort | tail -1)
+AST_BUILD_DIR=$(find /usr/src/asterisk -maxdepth 1 -type d -name "asterisk-${ASTERISK_SERIES}" | sort | tail -1)
 fi
 if [ -z "$AST_BUILD_DIR" ] || [ ! -d "$AST_BUILD_DIR" ]; then
 error "Asterisk source directory not found. Did Step 3 complete successfully?"
@@ -1051,9 +1028,22 @@ fi
 
 make install-logrotate
 
-log "Enabling chan_sip (required by ViciDial)..."
+# chan_sip is NOT required by ViciDial. ViciDial needs *a* channel driver;
+# res_pjsip serves phones, carriers and the WebRTC webphone. chan_sip is
+# deprecated in Asterisk 18/20, REMOVED in 21, and is the largest attack
+# surface on the box (udp/5060). The reference production server runs with
+# `noload = chan_sip.so` and 0 chan_sip modules loaded.
+#
+# Keep it noloaded. To opt back in, comment the noload line and re-run
+# `asterisk -rx "module load chan_sip.so"`.
+log "Keeping chan_sip noloaded (PJSIP-only; see docs/PJSIP-WEBPHONE-TROUBLESHOOTING.md)..."
 if [ -f /etc/asterisk/modules.conf ]; then
-sed -i 's|^noload = chan_sip.so|;noload = chan_sip.so|g' /etc/asterisk/modules.conf
+if grep -qE '^\s*;\s*noload\s*=\s*chan_sip\.so' /etc/asterisk/modules.conf; then
+sed -i 's|^\s*;\s*noload\s*=\s*chan_sip\.so.*|noload = chan_sip.so|' /etc/asterisk/modules.conf
+elif ! grep -qE '^noload\s*=\s*chan_sip\.so' /etc/asterisk/modules.conf; then
+sed -i '/^\[modules\]/a noload = chan_sip.so' /etc/asterisk/modules.conf
+fi
+success "chan_sip will not load"
 fi
 
 log "Setting up asterisk user and permissions..."
@@ -1065,7 +1055,7 @@ chown -R asterisk:asterisk /var/{lib,log,spool}/asterisk
 chown -R asterisk:asterisk /usr/lib64/asterisk
 
 ldconfig
-success "Asterisk 18 installed from: $AST_BUILD_DIR"
+success "Asterisk ${ASTERISK_SERIES} installed from: $AST_BUILD_DIR"
 mark_step_complete "STEP_4"
 fi
 
@@ -1208,7 +1198,7 @@ if ! mysql -u root -p"${MYSQL_ROOT_PASSWORD}" asterisk <<EOF
 ALTER TABLE phones ALTER template_id SET DEFAULT '';
 
 -- Set correct Asterisk version (detected from source dir name)
-UPDATE servers SET asterisk_version='18.X-vici';
+UPDATE servers SET asterisk_version='20.18.2';
 EOF
 then
 warning "Database tuning had errors (may not be critical)"
@@ -2552,6 +2542,10 @@ fi
 
 # ---------------------------------------------------------------------------
 # FIX: sip.conf websocket_enabled — must be false when res_pjsip is active
+# NOTE: with `noload = chan_sip.so` (the default since the Asterisk 20 move)
+# this is moot -- chan_sip never loads, so it cannot claim the sub-protocol.
+# Kept as belt-and-braces for anyone who re-enables chan_sip.
+#
 # ViciDial install.pl sets websocket_enabled=true in sip.conf by default.
 # This causes chan_sip to register the "sip" WebSocket sub-protocol first,
 # which prevents res_pjsip_transport_websocket.so from loading (it declines
@@ -3562,7 +3556,7 @@ info "Installation Summary:"
 info "  DAHDI Linux 3.4.0     : Installed (FrancoSmash73 - kernel 6.12 patched)"
 info "  DAHDI Tools 3.4.0     : Installed (FrancoSmash73 - autotools patched)"
 info "  LibPRI 1.6.1          : Installed"
-info "  Asterisk 18 (vici)    : Running (ViciDial-patched)"
+info "  Asterisk ${ASTERISK_SERIES}      : Running (plain upstream, PJSIP-only)"
 info "  ViciDial              : Installed (FrancoSmash73 method)"
 info "  DB Schema             : Pre-loaded before install.pl"
 info "  ConfBridge            : Configured (all 9 profiles)"

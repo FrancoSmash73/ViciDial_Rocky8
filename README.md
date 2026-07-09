@@ -1,6 +1,6 @@
 # ViciDial Rocky Linux 10 Install Scripts
 
-**Asterisk:** 18.21.0-vici | **ViciDial:** SVN trunk | **OS:** Rocky Linux 10.x / AlmaLinux 10.x
+**Asterisk:** 20.18.2 (plain upstream, PJSIP-only) | **ViciDial:** SVN trunk | **OS:** Rocky Linux 10.x / AlmaLinux 10.x
 **PHP:** 8.3 | **MariaDB:** 10.11 | **Perl:** 5.40
 
 ---
