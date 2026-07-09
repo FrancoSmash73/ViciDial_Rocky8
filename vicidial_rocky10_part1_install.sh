@@ -875,14 +875,36 @@ EOF
     log "Installing fail2ban for security hardening..."
     dnf install -y fail2ban fail2ban-systemd
     cat > /etc/fail2ban/jail.d/vicidial.conf << 'EOF'
+[DEFAULT]
+# --- TRAP 1: banaction ---------------------------------------------------
+# The distro default is banaction = iptables-multiport. On a firewalld host
+# with FirewallBackend=nftables, those rules live in a table that firewalld
+# FLUSHES on `firewall-cmd --reload`. Every ban silently disappears while
+# `fail2ban-client status` keeps reporting the IPs as banned.
+# fail2ban's own nft table (inet f2b-table) is not managed by firewalld.
+banaction          = nftables-multiport
+banaction_allports = nftables-allports
+
+# --- TRAP 2: backend -----------------------------------------------------
+# The `fail2ban-systemd` package drops /etc/fail2ban/jail.d/00-systemd.conf
+# which sets `backend=systemd` for ALL jails. When the backend is systemd,
+# fail2ban reads journald and SILENTLY IGNORES `logpath`. Asterisk and httpd
+# log to files, not journald -> those jails tail an empty stream and ban
+# nobody, with no error and a "healthy" status.
+#
+# Fix per-jail (jail-level beats this [DEFAULT] and the 00-systemd drop-in).
+# sshd DOES log to journald, so it must stay on the systemd backend.
+
 [sshd]
 enabled  = true
 maxretry = 5
 bantime  = 3600
 findtime = 600
+# no `backend` here on purpose: sshd genuinely logs to journald.
 
 [asterisk]
 enabled  = true
+backend  = polling            # MUST override backend=systemd; asterisk logs to a file
 maxretry = 5
 bantime  = 86400
 findtime = 600
@@ -890,12 +912,25 @@ logpath  = /var/log/asterisk/messages
 
 [apache-auth]
 enabled  = true
+backend  = polling            # MUST override backend=systemd; httpd logs to files
 maxretry = 5
 bantime  = 3600
 findtime = 600
 EOF
+    fail2ban-client -t >/dev/null 2>&1 || warning "fail2ban config test failed — review /etc/fail2ban/jail.d/vicidial.conf"
     systemctl enable --now fail2ban
-    success "fail2ban installed with SSH/Asterisk/Apache jails"
+    sleep 3
+
+    # Verify the jails read FILES, not the journal. This is the check that
+    # would have caught a 4-day blind spot on a live server.
+    for _jail in asterisk apache-auth; do
+        if fail2ban-client status "$_jail" 2>/dev/null | grep -q "Journal matches"; then
+            warning "fail2ban jail '$_jail' is reading journald, not its logfile — bans will never fire"
+        else
+            success "fail2ban jail '$_jail' is reading its logfile"
+        fi
+    done
+    success "fail2ban installed with SSH/Asterisk/Apache jails (nftables banaction, file backend)"
 
     # ViciDial server status script
     log "Creating vici-status.sh health check script..."
