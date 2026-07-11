@@ -430,7 +430,12 @@ if ! is_complete "PHP_INSTALL"; then
     # Configure PHP for ViciDial
     log "Configuring PHP for ViciDial..."
     cat > /etc/php.d/99-vicidial.ini << 'EOF'
-error_reporting = E_ALL & ~E_NOTICE
+; ViciDial's legacy code triggers E_DEPRECATED constantly on PHP 8.x (Remi 8.3),
+; e.g. preg_replace() null args — thousands per hour into the php-fpm error log.
+; They are noise, not failures. Exclude them (and E_STRICT) so the log stays useful.
+; Note: on a fresh install no agc/options.php exists, so this ini value is the
+; effective error_reporting (ViciDial only overrides it when OVERRIDE>0 in options.php).
+error_reporting = E_ALL & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT
 memory_limit = 448M
 short_open_tag = On
 max_execution_time = 3330
@@ -451,7 +456,28 @@ display_errors = Off
 log_errors = On
 error_log = /var/log/php-fpm/error.log
 EOF
-    
+
+    # Cap the php-fpm logs. The distro default (/etc/logrotate.d/php-fpm) rotates
+    # weekly with NO size limit, so ViciDial's PHP 8.x output can balloon to
+    # hundreds of MB between rotations (seen: 348 MB in ~5 days). Size-cap it so
+    # the daily logrotate run rotates on 50 MB and keeps 7 compressed copies.
+    log "Capping php-fpm log rotation (size-based)..."
+    cat > /etc/logrotate.d/php-fpm << 'EOF'
+/var/log/php-fpm/*log {
+    daily
+    rotate 7
+    size 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+	/bin/kill -SIGUSR1 `cat /run/php-fpm/php-fpm.pid 2>/dev/null` 2>/dev/null || true
+    endscript
+}
+EOF
+
     PHP_VERSION=$(php -v | head -1 | awk '{print $2}')
     success "PHP $PHP_VERSION installed and configured"
     mark_complete "PHP_INSTALL"
