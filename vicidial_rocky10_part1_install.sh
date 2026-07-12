@@ -480,6 +480,38 @@ EOF
 
     PHP_VERSION=$(php -v | head -1 | awk '{print $2}')
     success "PHP $PHP_VERSION installed and configured"
+
+    # --- PHP error-signal monitor ------------------------------------------
+    # ViciDial's php-fpm log is ~97% benign "Undefined variable" noise from stock
+    # upstream code. A genuinely broken page (e.g. a parse error) hides under that
+    # volume -- one such bug ran 6 days unnoticed on a sister server. This monitor
+    # filters the boilerplate and mails root ONLY when a real error (parse/fatal or
+    # a non-boilerplate warning) appears. Silent otherwise.
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "${SCRIPT_DIR}/php-error-signal.sh" ]; then
+        install -m 755 "${SCRIPT_DIR}/php-error-signal.sh" /usr/local/bin/php-error-signal.sh
+        cat > /etc/cron.d/php-error-signal << 'EOF'
+MAILTO=root
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+17 * * * * root /usr/local/bin/php-error-signal.sh
+EOF
+        chmod 644 /etc/cron.d/php-error-signal
+        cat > /etc/logrotate.d/php-error-signal << 'EOF'
+/var/log/php-error-signal.log {
+    monthly
+    rotate 3
+    size 5M
+    missingok
+    notifempty
+    compress
+    copytruncate
+}
+EOF
+        success "php-error-signal monitor installed (hourly; mails root only on real signal)"
+    else
+        warning "php-error-signal.sh not found beside installer — monitor not deployed"
+    fi
+
     mark_complete "PHP_INSTALL"
 fi
 
