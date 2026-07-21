@@ -7,7 +7,7 @@ running where. Update this as things change; it goes stale the moment a repo
 gets renamed or a server gets rebuilt, same as everything else in this family
 of docs.
 
-**Status as of 2026-07-20.**
+**Status as of 2026-07-21.**
 
 ---
 
@@ -15,7 +15,7 @@ of docs.
 
 | Project | Visibility | What it is |
 |---|---|---|
-| [`vicidial-rocky10`](https://github.com/FrancoSmash73/vicidial-rocky10) | Private | Current production reference: Rocky Linux 10 + Asterisk 18.21.0-vici (default install unchanged). The `pjsip-fail2ban-hardening` branch was merged into `main` 2026-07-20 (9 of 10 commits — fail2ban/php fixes, PJSIP tooling) and deleted; the excluded 10th commit (Asterisk 20 plain, unpatched) stays out of `main` as its own deferred decision, still fully inspectable via `git show 441cf78`. Hosts this doc and `ARCHITECTURE_VISION.md`. |
+| [`vicidial-rocky10`](https://github.com/FrancoSmash73/vicidial-rocky10) | Private | Current production reference: Rocky Linux 10 + Asterisk 18.21.0-vici (default install unchanged). The `pjsip-fail2ban-hardening` branch was merged into `main` 2026-07-20 (9 of 10 commits — fail2ban/php fixes, PJSIP tooling) and deleted; the excluded 10th commit (Asterisk 20 plain, unpatched) stays out of `main` as its own deferred decision, still fully inspectable via `git show 441cf78`. 2026-07-21: Apache `ProxyTimeout` fix added to the Part 1 installer (see Open threads) after large list-loader uploads were found 504ing on Oliver. Hosts this doc and `ARCHITECTURE_VISION.md`. |
 | [`vicidial-installer`](https://github.com/FrancoSmash73/vicidial-installer) | Private | Separate installer lineage: Asterisk 20 + chan_sip. Originally the designated "future builds" target. Had a leaked-then-rotated DB credential in git history, since made private. |
 | [`Hulk-`](https://github.com/FrancoSmash73/Hulk-) | Public | The actual HulkPhone WebRTC softphone source — the agent-facing browser dialer embedded in ViciDial's UI. Consumed the same way everywhere as of 2026-07-20: a **live git clone** left in place at `/var/www/html/hulkphone` on CVS, Oliver, and (now) `vicidial-rocky10`'s Part 4 installer — no more vendored static snapshot anywhere. `configs/hulkphone/` (the old vendored copy, which had already gone ~2 months stale once) was deleted from `vicidial-rocky10` the same day. See `CVS_OLIVER_DIVERGENCE.md`. |
 | [`vicidial-skin`](https://github.com/FrancoSmash73/vicidial-skin) | Private | Dark-theme skin/theming for ViciDial's admin and agent panels on CVS. Currently on Step 9 (Polish & Refinement) per its own project notes. |
@@ -87,3 +87,14 @@ of docs.
   BFG), not urgent.
 - `AI-AMD-project` is currently at Phase 0/1 per its own brief (baseline
   measurement / shadow mode) — worth a status check next time it comes up.
+- ~~Apache `ProxyTimeout` 60s default silently killing large list-loader
+  uploads~~ — **fixed, 2026-07-21**: `admin_listloader_fifth_gen.php` was
+  504ing on large uploads (confirmed on a 250k-row list on Oliver) even
+  though PHP-FPM finished the insert fine ~20 minutes later — Apache's
+  `mod_proxy_fcgi` was never given a timeout matching the PHP execution
+  allowance Step 3 already sets (`max_execution_time=3330`, etc.), so it
+  fell back to its 60s default and killed the client connection long before
+  PHP was done. Added `zz-vicidial-proxytimeout.conf`
+  (`Timeout`/`ProxyTimeout 3600`) to `vicidial_rocky10_part1_install.sh`'s
+  Apache step (commit `d66fe5e`, pushed as `1b22f35`); applied live on
+  Oliver the same day.
