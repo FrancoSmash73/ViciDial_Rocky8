@@ -382,10 +382,12 @@ if [ "${HULKPHONE_SOURCED_FROM_REPO}" = true ]; then
     # Root owns the checkout — the web server user gets read-only access via
     # world-readable bits, not ownership, so a compromised PHP/Apache process
     # can't modify its own served files or the .git history underneath them.
+    # `go-w` only (not a blanket 644/755 reset): several files in the repo
+    # are legitimately tracked executable (git mode 100755) -- forcing 644
+    # on everything fights git's own tracked mode and leaves the checkout
+    # permanently "dirty" (mode-only diff) after every single run.
     chown -R root:root "${HULKPHONE_DIR}"
-    find "${HULKPHONE_DIR}" -type d -exec chmod 755 {} +
-    find "${HULKPHONE_DIR}" -type f -exec chmod 644 {} +
-    find "${HULKPHONE_DIR}" -name "*.sh" -exec chmod 755 {} +
+    chmod -R go-w "${HULKPHONE_DIR}"
 
     # config.local.php holds per-install SIP/TURN settings (gitignored, so a
     # `git reset --hard` above never touches it). Create it once, seeded with
