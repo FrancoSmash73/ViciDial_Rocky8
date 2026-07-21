@@ -441,7 +441,12 @@ if ! is_complete "PHP_INSTALL"; then
     # Configure PHP for ViciDial
     log "Configuring PHP for ViciDial..."
     cat > /etc/php.d/99-vicidial.ini << 'EOF'
-error_reporting = E_ALL & ~E_NOTICE
+; ViciDial's legacy code triggers E_DEPRECATED constantly on PHP 8.x (Remi 8.3),
+; e.g. preg_replace() null args — thousands per hour into the php-fpm error log.
+; They are noise, not failures. Exclude them (and E_STRICT) so the log stays useful.
+; Note: on a fresh install no agc/options.php exists, so this ini value is the
+; effective error_reporting (ViciDial only overrides it when OVERRIDE>0 in options.php).
+error_reporting = E_ALL & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT
 memory_limit = 448M
 short_open_tag = On
 max_execution_time = 3330
@@ -462,9 +467,62 @@ display_errors = Off
 log_errors = On
 error_log = /var/log/php-fpm/error.log
 EOF
-    
+
+    # Cap the php-fpm logs. The distro default (/etc/logrotate.d/php-fpm) rotates
+    # weekly with NO size limit, so ViciDial's PHP 8.x output can balloon to
+    # hundreds of MB between rotations (seen: 348 MB in ~5 days). Size-cap it so
+    # the daily logrotate run rotates on 50 MB and keeps 7 compressed copies.
+    log "Capping php-fpm log rotation (size-based)..."
+    cat > /etc/logrotate.d/php-fpm << 'EOF'
+/var/log/php-fpm/*log {
+    daily
+    rotate 7
+    size 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+	/bin/kill -SIGUSR1 `cat /run/php-fpm/php-fpm.pid 2>/dev/null` 2>/dev/null || true
+    endscript
+}
+EOF
+
     PHP_VERSION=$(php -v | head -1 | awk '{print $2}')
     success "PHP $PHP_VERSION installed and configured"
+
+    # --- PHP error-signal monitor ------------------------------------------
+    # ViciDial's php-fpm log is ~97% benign "Undefined variable" noise from stock
+    # upstream code. A genuinely broken page (e.g. a parse error) hides under that
+    # volume -- one such bug ran 6 days unnoticed on a sister server. This monitor
+    # filters the boilerplate and mails root ONLY when a real error (parse/fatal or
+    # a non-boilerplate warning) appears. Silent otherwise.
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "${SCRIPT_DIR}/php-error-signal.sh" ]; then
+        install -m 755 "${SCRIPT_DIR}/php-error-signal.sh" /usr/local/bin/php-error-signal.sh
+        cat > /etc/cron.d/php-error-signal << 'EOF'
+MAILTO=root
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+17 * * * * root /usr/local/bin/php-error-signal.sh
+EOF
+        chmod 644 /etc/cron.d/php-error-signal
+        cat > /etc/logrotate.d/php-error-signal << 'EOF'
+/var/log/php-error-signal.log {
+    monthly
+    rotate 3
+    size 5M
+    missingok
+    notifempty
+    compress
+    copytruncate
+}
+EOF
+        success "php-error-signal monitor installed (hourly; mails root only on real signal)"
+    else
+        warning "php-error-signal.sh not found beside installer — monitor not deployed"
+    fi
+
     mark_complete "PHP_INSTALL"
 fi
 
@@ -885,28 +943,92 @@ EOF
     # Fail2ban: SSH, Asterisk, Apache protection
     log "Installing fail2ban for security hardening..."
     dnf install -y fail2ban fail2ban-systemd
-    cat > /etc/fail2ban/jail.d/vicidial.conf << 'EOF'
+
+    # --- TRAP 0: file extension decides who wins -----------------------------
+    # fail2ban reads, in order (fail2ban/client/configreader.py):
+    #     jail.conf -> sorted(jail.d/*.conf) -> jail.local -> sorted(jail.d/*.local)
+    # So EVERY .local overrides EVERY .conf, and among .local files the
+    # alphabetically last one wins. A jail.d/vicidial.conf is therefore
+    # silently overridden by any asterisk.local / 00-*.local a distro, package
+    # or admin drops in. Ship a .local that sorts last instead.
+    F2B_JAIL="/etc/fail2ban/jail.d/zz-vicidial.local"
+
+    # Retire the legacy .conf from earlier versions of this installer, or its
+    # settings will linger and confuse the next person who greps for them.
+    if [ -f /etc/fail2ban/jail.d/vicidial.conf ]; then
+        mv /etc/fail2ban/jail.d/vicidial.conf \
+           "/etc/fail2ban/jail.d/vicidial.conf.retired.$(date +%Y%m%d-%H%M%S)"
+        warning "moved legacy jail.d/vicidial.conf aside (superseded by zz-vicidial.local)"
+    fi
+
+    cat > "$F2B_JAIL" << 'EOF'
+[DEFAULT]
+# --- TRAP 1: banaction ---------------------------------------------------
+# The distro default is banaction = iptables-multiport. On a firewalld host
+# with FirewallBackend=nftables, those rules live in a table that firewalld
+# FLUSHES on `firewall-cmd --reload`. Every ban silently disappears while
+# `fail2ban-client status` keeps reporting the IPs as banned.
+# fail2ban's own nft table (inet f2b-table) is not managed by firewalld.
+banaction          = nftables-multiport
+banaction_allports = nftables-allports
+
+# --- TRAP 2: backend -----------------------------------------------------
+# The `fail2ban-systemd` package drops /etc/fail2ban/jail.d/00-systemd.conf
+# which sets `backend=systemd` for ALL jails. When the backend is systemd,
+# fail2ban reads journald and SILENTLY IGNORES `logpath`. Asterisk and httpd
+# log to files, not journald -> those jails tail an empty stream and ban
+# nobody, with no error and a "healthy" status.
+#
+# Fix per-jail (jail-level beats this [DEFAULT] and the 00-systemd drop-in).
+# sshd DOES log to journald, so it must stay on the systemd backend.
+
 [sshd]
 enabled  = true
 maxretry = 5
 bantime  = 3600
 findtime = 600
+# no `backend` here on purpose: sshd genuinely logs to journald.
 
 [asterisk]
 enabled  = true
+backend  = polling            # MUST override backend=systemd; asterisk logs to a file
 maxretry = 5
 bantime  = 86400
 findtime = 600
+# Which file Asterisk writes depends on logger.conf. Some installs log security
+# events to `full`, others to `messages` -- listing both means the jail is
+# correct either way. fail2ban ignores logpath entries that do not exist.
 logpath  = /var/log/asterisk/messages
+           /var/log/asterisk/full
 
 [apache-auth]
 enabled  = true
+backend  = polling            # MUST override backend=systemd; httpd logs to files
 maxretry = 5
 bantime  = 3600
 findtime = 600
 EOF
+    fail2ban-client -t >/dev/null 2>&1 || warning "fail2ban config test failed — review $F2B_JAIL"
     systemctl enable --now fail2ban
-    success "fail2ban installed with SSH/Asterisk/Apache jails"
+    sleep 3
+
+    # Verify the jails read FILES, not the journal. This is the check that
+    # would have caught a 4-day blind spot on a live server.
+    for _jail in asterisk apache-auth; do
+        if fail2ban-client status "$_jail" 2>/dev/null | grep -q "Journal matches"; then
+            warning "fail2ban jail '$_jail' is reading journald, not its logfile — bans will never fire"
+        else
+            success "fail2ban jail '$_jail' is reading its logfile"
+        fi
+    done
+    # `Currently banned` is not proof of enforcement -- a jail can report a ban
+    # while the firewall drops nothing. fail2ban's own table is the tell.
+    if nft list tables 2>/dev/null | grep -q "f2b-table"; then
+        success "fail2ban nft table present (bans survive firewall-cmd --reload)"
+    else
+        info "f2b-table appears on first ban; verify with: nft list ruleset | grep <banned-ip>"
+    fi
+    success "fail2ban installed with SSH/Asterisk/Apache jails (nftables banaction, file backend)"
 
     # ViciDial server status script
     log "Creating vici-status.sh health check script..."

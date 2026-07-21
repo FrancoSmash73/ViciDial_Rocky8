@@ -222,7 +222,16 @@ AGENTS_CONF="/etc/asterisk/pjsip-webrtc-agents.conf"
 if [ ! -f "${AGENTS_CONF}" ]; then
     cat > "${AGENTS_CONF}" << 'AGENTSCONF'
 ; HulkPhone WebRTC Agent Extensions
-; Managed manually — add one block per agent using the template below.
+;
+; PREFERRED: generate this file from the phones table instead of editing it:
+;     ./vicidial_pjsip_phone_sync.sh --check    # audit
+;     ./vicidial_pjsip_phone_sync.sh --apply    # write + pjsip reload
+;
+; ViciDial never auto-generates PJSIP endpoint blocks for phones (it only
+; generates sip-vicidial.conf / iax-vicidial.conf / the dialplan), so without
+; the sync script every new PJSIP phone must be added here by hand.
+;
+; Manual template below, if you must.
 ;
 ; [83XX](webrtc_template)
 ; auth=auth83XX
@@ -234,7 +243,7 @@ if [ ! -f "${AGENTS_CONF}" ]; then
 ; type=auth
 ; auth_type=userpass
 ; username=83XX
-; password=YOURPASSWORD
+; password=<phones.conf_secret>   ; Registration Password -- NEVER phones.pass
 ;
 ; [83XX]
 ; type=aor
@@ -718,9 +727,14 @@ echo ""
 echo -e "  ${YELLOW}Next steps:${NC}"
 echo -e "  1. Add WebRTC agent phones to /etc/asterisk/pjsip-webrtc-agents.conf"
 echo -e "     (system_settings.webphone_url was already set for you above)"
-echo -e "  2. Set phones.is_webphone = 'Y' and phones.conf_secret = phones.pass"
-echo -e "     for each WebRTC phone in the ViciDial DB (HulkPhone auths with"
-echo -e "     conf_secret, so it must match the PJSIP auth password)"
+echo -e "  2. Set phones.is_webphone = 'Y' for each WebRTC phone, and give it a"
+echo -e "     ${BOLD}Registration Password${NC} (Admin -> Phones). That field is"
+echo -e "     phones.conf_secret -- it is NOT phones.pass (the Login Password)."
+echo -e "     HulkPhone authenticates with conf_secret, so the PJSIP auth block"
+echo -e "     must use conf_secret. Do NOT force conf_secret = pass: it hides the"
+echo -e "     bug until one phone diverges, then that phone silently fails auth."
+echo -e "  2b. Generate the endpoint blocks instead of hand-editing:"
+echo -e "     ${CYAN}./vicidial_pjsip_phone_sync.sh --apply${NC}"
 echo -e "  3. Verify: asterisk -rx \"module show like res_pjsip_transport_websocket\""
 echo ""
 
