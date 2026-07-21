@@ -15,7 +15,7 @@ of docs.
 
 | Project | Visibility | What it is |
 |---|---|---|
-| [`vicidial-rocky10`](https://github.com/FrancoSmash73/vicidial-rocky10) | Private | Current production reference: Rocky Linux 10 + Asterisk (18.21.0-vici today, moving toward 20/PJSIP-only via the `pjsip-fail2ban-hardening` branch). Hosts this doc and `ARCHITECTURE_VISION.md`. |
+| [`vicidial-rocky10`](https://github.com/FrancoSmash73/vicidial-rocky10) | Private | Current production reference: Rocky Linux 10 + Asterisk 18.21.0-vici (default install unchanged). The `pjsip-fail2ban-hardening` branch was merged into `main` 2026-07-20 (9 of 10 commits — fail2ban/php fixes, PJSIP tooling) and deleted; the excluded 10th commit (Asterisk 20 plain, unpatched) stays out of `main` as its own deferred decision, still fully inspectable via `git show 441cf78`. Hosts this doc and `ARCHITECTURE_VISION.md`. |
 | [`vicidial-installer`](https://github.com/FrancoSmash73/vicidial-installer) | Private | Separate installer lineage: Asterisk 20 + chan_sip. Originally the designated "future builds" target. Had a leaked-then-rotated DB credential in git history, since made private. |
 | [`Hulk-`](https://github.com/FrancoSmash73/Hulk-) | Public | The actual HulkPhone WebRTC softphone source — the agent-facing browser dialer embedded in ViciDial's UI. Consumed the same way everywhere as of 2026-07-20: a **live git clone** left in place at `/var/www/html/hulkphone` on CVS, Oliver, and (now) `vicidial-rocky10`'s Part 4 installer — no more vendored static snapshot anywhere. `configs/hulkphone/` (the old vendored copy, which had already gone ~2 months stale once) was deleted from `vicidial-rocky10` the same day. See `CVS_OLIVER_DIVERGENCE.md`. |
 | [`vicidial-skin`](https://github.com/FrancoSmash73/vicidial-skin) | Private | Dark-theme skin/theming for ViciDial's admin and agent panels on CVS. Currently on Step 9 (Polish & Refinement) per its own project notes. |
@@ -76,8 +76,12 @@ of docs.
   against both CVS and Oliver with no lingering issues, and the old
   `configs/hulkphone/` vendored copy deleted outright. See
   `CVS_OLIVER_DIVERGENCE.md`. Nothing open on this thread anymore.
-- `pjsip-fail2ban-hardening` branch — validated, cleaned up, ready for a real
-  merge review into `main`.
+- ~~`pjsip-fail2ban-hardening` branch~~ — **merged and deleted, 2026-07-20.**
+  9 of 10 commits landed on `main` (fail2ban/php fixes, PJSIP endpoint-sync
+  and chan_sip-removal tooling, docs); the Asterisk-20 commit was deliberately
+  excluded and remains available via `git show 441cf78` even with the branch
+  gone. See `CVS_OLIVER_DIVERGENCE.md` for the full merge record and the
+  patched-Asterisk-20 follow-up this surfaced.
 - `vicidial-installer`'s leaked-credential git history — repo is private now
   and the credential's dead, so this is optional cleanup (`git filter-repo`/
   BFG), not urgent.

@@ -103,6 +103,43 @@ even needed here), and `deploy/verify.sh` was 8/8 on the first try:
 files anywhere. Both CVS and Oliver are now running the same,
 fully-fixed deployment mechanism.
 
+### 3. `pjsip-fail2ban-hardening` branch — merged and deleted, 2026-07-20
+
+This branch (9 real commits of fail2ban/php fixes plus PJSIP tooling, authored
+against CVS) never made it to GitHub until this session — see the "what's
+diverged" history above for why. Once pushed, it went through a real merge
+review rather than a blind merge:
+
+- **Merged into `main`**: the 3 fail2ban fixes (blind jails, wrong logfile,
+  `.conf`-overridden-by-`.local`), 2 php/php-fpm fixes, `php-error-signal.sh`
+  monitoring, `vicidial_pjsip_phone_sync.sh` (DB-driven PJSIP endpoint
+  generation), `vicidial_chan_sip_remove.sh` (audited chan_sip removal), and
+  docs. Merge commit `ad20359`.
+- **Deliberately excluded**: `441cf78` (build plain Asterisk 20.18.2, no
+  patches). It was the *only* commit touching `vicidial_rocky10_part2_install.sh`
+  and `CLAUDE.md` in the whole branch, so both were verified as exact-zero-diff
+  against pre-merge `main` after the merge. `main`'s default install is
+  unchanged: still Asterisk 18.21.0-vici.
+- **Branch deleted** (GitHub, this sandbox, and Oliver's local checkout — Oliver's
+  was still checked out on it) after confirming `441cf78` remains fully
+  inspectable forever via `git show 441cf78`, since it's a permanent ancestor
+  of the merge commit regardless of the branch ref existing.
+
+**New finding this surfaced, worth its own follow-up**: ViciDial's 5
+Asterisk-18 patches (`amd_stats`, `iax_peer_status`, `sip_peer_status`,
+`timeout_reset_dial_app`, `timeout_reset_dial_core`) were dry-run tested
+against real, freshly-downloaded Asterisk 20.18.2 source — **all 5 applied
+cleanly**, no rejected hunks (one hunk needed minor fuzz, still succeeded).
+Of the 5, only 3 are actually relevant to a PJSIP-only build (`amd_stats` and
+the two `timeout_reset_*` patches — `sip_peer_status`/`iax_peer_status` patch
+`chan_sip.c`/`chan_iax2.c`, neither of which loads once chan_sip is
+noloaded). This means a genuinely **patched** Asterisk 20 — newer Asterisk,
+real ViciDial feature patches retained — looks buildable, which would beat
+both today's 18-vici default and `441cf78`'s unpatched-20 approach. Textual
+patch-apply success isn't proof the code compiles or behaves correctly,
+though — this needs an actual compile + functional smoke test on a disposable
+VM before it's a real option, not just evidence it's worth attempting.
+
 ---
 
 ## Open decisions — not made here, need your call
@@ -116,6 +153,13 @@ irreversible in the way a config change isn't. Don't do this without:
   production load, not just a validated test call
 - A rollback plan (Oliver's current 18.21.0-vici build should stay recoverable
   until the 20 build has run clean for a real stretch of time)
+
+Now a three-way choice, not two: stay on 18-vici, move to plain unpatched 20
+(`441cf78`'s approach, excluded from `main`), or build a **patched** 20 (see
+the branch-merge note above — the 3 relevant vici patches dry-run clean
+against real 20.18.2 source, unvalidated by an actual compile yet). The third
+option looks like the best outcome of the three if it holds up under a real
+build test, but that test hasn't happened.
 
 **2. ~~Change Part 4 to deploy HulkPhone via git-clone instead of vendoring?~~**
 Implemented and run for real on both CVS and Oliver, 2026-07-20 — see the
@@ -132,6 +176,10 @@ vendored copy that silently rots.
 
 1. ~~Re-run version/module checks on both boxes fresh~~ — done 2026-07-20, see
    the correction above. Re-verify again if picking this doc back up later.
-2. Decide on the Part 4 deployment-mechanism change (lower risk, do this first).
-3. Treat the Oliver Asterisk-20 migration as its own separate, deliberately
-   scheduled project — not a follow-on to tonight's session.
+2. ~~Decide on the Part 4 deployment-mechanism change~~ — done 2026-07-20.
+3. ~~Merge the low-risk `pjsip-fail2ban-hardening` work~~ — done 2026-07-20;
+   branch merged (9/10 commits) and deleted.
+4. Treat the Oliver Asterisk-20 migration as its own separate, deliberately
+   scheduled project — not a follow-on to tonight's session. If picked up,
+   start with the patched-20 build test (3 vici patches, disposable VM)
+   rather than assuming `441cf78`'s unpatched approach is the only option.
