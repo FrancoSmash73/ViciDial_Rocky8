@@ -62,14 +62,35 @@ detect the existing checkout by matching `git remote get-url origin` and
 fast-forward via `fetch --depth 1 && reset --hard`; anything found on disk
 that isn't that checkout (an old vendored-copy install, manual content) gets
 moved aside to a timestamped backup rather than silently overwritten.
-Verified in an isolated scratch directory (fresh clone, idempotent re-run,
-stale-checkout update, non-git-content preservation, and a real permission
-bug this testing caught: the bulk `chmod 644` lockdown was clobbering
-`config.local.php`'s `640 root:apache` permissions back to world-readable on
-every re-run after the first — fixed by re-applying that chmod
-unconditionally after the bulk pass). **Not yet run against CVS or Oliver's
-live `/var/www/html/hulkphone`** — that's a separate, deliberate step from
-implementing the installer change itself.
+Verified in an isolated scratch directory first (fresh clone, idempotent
+re-run, stale-checkout update, non-git-content preservation, and a real
+permission bug this testing caught: the bulk `chmod 644` lockdown was
+clobbering `config.local.php`'s `640 root:apache` permissions back to
+world-readable on every re-run after the first — fixed by re-applying that
+chmod unconditionally after the bulk pass).
+
+**Run for real against CVS's live `/var/www/html/hulkphone` on 2026-07-20**,
+which caught two more real issues before/during the run:
+- CVS's existing checkout used the **SSH** remote (`git@github.com:...`)
+  while `HULK_REPO` was hardcoded to the **HTTPS** form — an exact-string
+  match would have treated it as "not ours," backed it up, and re-cloned
+  fresh, silently losing `config.local.php`'s real TURN credentials
+  (`turn_server`/`turn_user`/`turn_pass`) in the process, since the seeding
+  logic only fills in `sip_domain`. Fixed to compare owner/repo identity
+  instead of the raw URL, *before* running against CVS.
+- The blanket `chmod 755`(dirs)/`644`(files)/`755`(`*.sh`) reset was fighting
+  git's own tracked executable bit on several `Hulk-` files (`hulkphone.php`,
+  `.css`, `.js`, `README.md`, etc. — all committed as mode `100755`),
+  leaving the checkout permanently "dirty" (`git status` mode-only diff)
+  after every run. Caught by actually running it, not by the isolated test
+  (which never checked `git status` afterward). Fixed to `chmod -R go-w`
+  instead — strips group/world write only, leaves read/execute exactly as
+  git tracks them.
+
+End state on CVS: `deploy/verify.sh` 8/8 passing, `git status` clean,
+`config.local.php`'s real TURN credentials (`149.28.69.52:3478`) intact
+throughout. **Oliver has not been touched with this yet** — same code, but
+a separate, deliberate run.
 
 ---
 
