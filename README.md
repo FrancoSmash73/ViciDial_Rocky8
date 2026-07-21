@@ -6,7 +6,7 @@
 ---
 
 
-## PJSIP-only posture (⚠️ NEEDS VALIDATION)
+## PJSIP-only posture (✅ validated)
 
 This repo is moving toward PJSIP-only: chan_sip is deprecated in Asterisk 18/20
 and **removed in Asterisk 21**, it is the largest attack surface on a ViciDial
@@ -22,13 +22,13 @@ Two helpers:
 Both default to a read-only `--check`. See
 [docs/PJSIP-WEBPHONE-TROUBLESHOOTING.md](docs/PJSIP-WEBPHONE-TROUBLESHOOTING.md).
 
-> ⚠️ **Not yet validated end-to-end.** Every layer has been verified on a live
-> Rocky 10 box — endpoints load, passwords match `conf_secret`, WSS is bound on
-> 8089 with a valid cert, the dialplan resolves to `PJSIP/` — but **no browser
-> webphone has been observed completing a WebRTC registration** on that box yet.
-> Treat PJSIP-only as recommended-but-unproven until someone confirms an agent
-> login. Roll back by re-activating chan_sip and setting `phones.protocol='SIP'`,
-> then `servers.rebuild_conf_files='Y'` to regenerate the dialplan.
+> ✅ **Validated end-to-end on the reference box (CVS).** Endpoints load,
+> passwords match `conf_secret`, WSS is bound on 8089 with a valid cert, the
+> dialplan resolves to `PJSIP/` — and a browser webphone has now completed a
+> WebRTC registration and placed test calls successfully. PJSIP-only is
+> confirmed working, not just plumbed. Roll back by re-activating chan_sip and
+> setting `phones.protocol='SIP'`, then `servers.rebuild_conf_files='Y'` to
+> regenerate the dialplan.
 
 
 ## Scripts
