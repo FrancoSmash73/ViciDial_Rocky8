@@ -32,7 +32,7 @@ html, body {
     height: 100%;
     background: var(--bg-void);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     font-family: var(--font-display);
     overflow: hidden;
@@ -55,10 +55,12 @@ body::after {
 }
 
 /* ── Wrapper ────────────────────────────────────────────────────── */
+/* ViciDial embeds this in a fixed 460x500 iframe with scrolling="no", so
+   anything past ~490px is silently cut off. Capping here makes an overflowing
+   addition clip during development rather than in front of an agent. */
 #hulkphone-wrapper {
     width: 300px;
-    transform: scale(0.90);
-    transform-origin: top center;
+    max-height: 490px;
     background: var(--bg-panel);
     border: 1px solid var(--border-bright);
     border-radius: 8px;
@@ -72,9 +74,35 @@ body::after {
     animation: phoneIn 0.5s cubic-bezier(0.34,1.56,0.64,1) both;
 }
 
+/* ── Incoming Call Flash ────────────────────────────────────────── */
+/* Applied to the wrapper while an inbound call is ringing. The border and
+   glow ride up together so the whole panel reads as "alive" from across a
+   desk, without moving anything (no layout shift inside the iframe). */
+#hulkphone-wrapper.hp-incoming {
+    animation: hp-incoming-flash 0.9s ease-in-out infinite;
+}
+
+@keyframes hp-incoming-flash {
+    0%, 100% {
+        border-color: var(--border-bright);
+        box-shadow:
+            0 0 0 1px rgba(57,255,20,0.08),
+            0 0 30px rgba(57,255,20,0.15),
+            inset 0 1px 0 rgba(57,255,20,0.12);
+    }
+    50% {
+        border-color: var(--hulk-green);
+        box-shadow:
+            0 0 0 1px rgba(57,255,20,0.5),
+            0 0 34px rgba(57,255,20,0.75),
+            0 0 90px rgba(57,255,20,0.35),
+            inset 0 0 26px rgba(57,255,20,0.16);
+    }
+}
+
 @keyframes phoneIn {
-    from { opacity: 0; transform: scale(0.9) translateY(10px); }
-    to   { opacity: 1; transform: scale(1) translateY(0); }
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Header ─────────────────────────────────────────────────────── */
@@ -82,7 +110,7 @@ body::after {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px 10px;
+    padding: 8px 16px 7px;
     background: linear-gradient(180deg, #0f220f 0%, var(--bg-panel) 100%);
     border-bottom: 1px solid var(--border);
 }
@@ -160,7 +188,7 @@ body::after {
 /* ── Status Bar ─────────────────────────────────────────────────── */
 #hp-status-bar {
     background: var(--bg-void);
-    padding: 6px 16px;
+    padding: 4px 16px;
     border-bottom: 1px solid var(--border);
     text-align: center;
 }
@@ -200,7 +228,7 @@ body::after {
 #hp-info-row {
     display: flex;
     justify-content: space-between;
-    padding: 8px 14px;
+    padding: 5px 14px;
     background: var(--bg-panel-2);
     border-bottom: 1px solid var(--border);
     gap: 4px;
@@ -246,7 +274,7 @@ body::after {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 10px 14px 8px;
+    padding: 7px 14px 6px;
     background: var(--bg-panel);
 }
 
@@ -302,8 +330,8 @@ body::after {
 #hp-dialpad {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 6px;
-    padding: 8px 14px;
+    gap: 5px;
+    padding: 6px 14px;
     background: var(--bg-panel);
 }
 
@@ -311,7 +339,7 @@ body::after {
     background: var(--bg-panel-2);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 8px 4px;
+    padding: 5px 4px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -364,8 +392,8 @@ body::after {
 #hp-controls {
     display: grid;
     grid-template-columns: 2fr 1fr 1fr;
-    gap: 6px;
-    padding: 6px 14px 8px;
+    gap: 5px;
+    padding: 5px 14px 6px;
     background: var(--bg-panel);
 }
 
@@ -375,7 +403,7 @@ body::after {
     align-items: center;
     justify-content: center;
     gap: 3px;
-    padding: 10px 4px;
+    padding: 7px 4px;
     border-radius: 6px;
     border: 1px solid transparent;
     cursor: pointer;
@@ -417,6 +445,19 @@ body::after {
     box-shadow: 0 0 10px rgba(255,45,45,0.4);
 }
 
+/* Inbound call ringing: pulse the call button until the agent answers. */
+.hp-ctrl-btn.green.answer-call {
+    background: linear-gradient(180deg, #0d3a12, #071a09);
+    border-color: var(--hulk-green);
+    color: var(--hulk-green);
+    animation: hp-answer-pulse 1s ease-in-out infinite;
+}
+
+@keyframes hp-answer-pulse {
+    0%, 100% { box-shadow: 0 0 6px rgba(57,255,20,0.35); }
+    50%      { box-shadow: 0 0 16px rgba(57,255,20,0.85); }
+}
+
 .hp-ctrl-btn.amber {
     background: linear-gradient(180deg, #2a2100, #110d00);
     border-color: rgba(255,204,0,0.3);
@@ -455,7 +496,7 @@ body::after {
     display: flex;
     gap: 5px;
     align-items: center;
-    padding: 0 14px 8px;
+    padding: 0 14px 5px;
 }
 
 #hp-xfer-input {
@@ -511,7 +552,7 @@ body::after {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 14px 10px;
+    padding: 0 14px 6px;
 }
 
 .hp-vol-label {
@@ -542,7 +583,7 @@ body::after {
 /* ── Footer ─────────────────────────────────────────────────────── */
 #hp-footer {
     background: var(--bg-void);
-    padding: 6px 14px;
+    padding: 4px 14px;
     border-top: 1px solid var(--border);
     text-align: center;
 }
@@ -584,4 +625,38 @@ body::after {
 
 #hp-toast.show {
     transform: translateX(-50%) translateY(0);
+}
+
+/* ── Reduced Motion ─────────────────────────────────────────────── */
+/* Strobing at ~1Hz is a migraine and vestibular trigger. Where an animation
+   carried meaning, replace it with the steady equivalent of its lit state
+   rather than dropping it — a ringing phone must still look like it is
+   ringing. Decorative motion (logo pulse, entry slide) simply stops. */
+@media (prefers-reduced-motion: reduce) {
+    #hulkphone-wrapper,
+    .hp-logo-icon,
+    .status-dot,
+    #hp-status-text.ringing,
+    .hp-ctrl-btn.green.answer-call,
+    #hp-toast {
+        animation: none !important;
+        transition: none !important;
+    }
+
+    /* Ringing: hold the flash at its bright half instead of pulsing. */
+    #hulkphone-wrapper.hp-incoming {
+        border-color: var(--hulk-green);
+        box-shadow:
+            0 0 0 1px rgba(57,255,20,0.5),
+            0 0 34px rgba(57,255,20,0.75),
+            inset 0 0 26px rgba(57,255,20,0.16);
+    }
+
+    /* Answer button: keep it obviously lit, just not breathing. */
+    .hp-ctrl-btn.green.answer-call {
+        box-shadow: 0 0 16px rgba(57,255,20,0.85);
+    }
+
+    /* Status text blinks via opacity; hold it fully opaque. */
+    #hp-status-text.ringing { opacity: 1; }
 }

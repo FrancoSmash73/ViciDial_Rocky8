@@ -45,6 +45,7 @@
         remoteAudio: $('hp-remote-audio'),
         ringAudio:   $('hp-ring-audio'),
         volume:      $('hp-volume'),
+        wrapper:     $('hulkphone-wrapper'),
     };
 
     // ── State ─────────────────────────────────────────────────────
@@ -53,6 +54,7 @@
     let isMuted       = false;
     let isOnHold      = false;
     let callActive    = false;
+    let pendingInvite = false;  // Inbound call ringing, not yet answered
     let warmXferSess  = null;   // Second leg for warm transfer
     let timerInterval = null;
     let callSeconds   = 0;
@@ -116,14 +118,132 @@
     }
 
     // ════════════════════════════════════════════════════════════
+    //  INCOMING CALL FLASH
+    // ════════════════════════════════════════════════════════════
+    //
+    // Inbound calls only ring when the agent is idle (a logged-in ViciDial
+    // agent holds the conference leg, so SimpleUser rejects the INVITE with
+    // 486). Idle means they are almost certainly looking at something other
+    // than this panel, so the signal has to leave the page: the tab title
+    // blinks the caller's number and the favicon alternates green/red, which
+    // a background or minimised tab shows in the taskbar.
+    //
+    // Inside ViciDial's iframe the parent owns the title and favicon, so those
+    // writes are harmless no-ops there — and this path cannot fire in that
+    // context anyway.
+
+    const flash = {
+        active:     false,
+        timer:      null,
+        phase:      false,
+        savedTitle: '',
+        link:       null,   // <link rel="icon">
+        savedHref:  null,   // null when we created the element ourselves
+        icons:      null,   // { green, red } data URIs, built once
+    };
+
+    function prefersReducedMotion() {
+        return !!(window.matchMedia &&
+                  window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    }
+
+    // 32x32 filled dot as a data URI. Built once and reused; redrawing a canvas
+    // on every blink would churn a bitmap twice a second for no reason.
+    function dotIcon(color) {
+        const c = document.createElement('canvas');
+        c.width = c.height = 32;
+        const g = c.getContext('2d');
+        g.beginPath();
+        g.arc(16, 16, 13, 0, Math.PI * 2);
+        g.fillStyle = color;
+        g.fill();
+        return c.toDataURL('image/png');
+    }
+
+    function faviconLink() {
+        let el = document.querySelector('link[rel~="icon"]');
+        if (el) {
+            flash.savedHref = el.getAttribute('href');
+        } else {
+            el = document.createElement('link');
+            el.rel = 'icon';
+            document.head.appendChild(el);
+            flash.savedHref = null;   // we own it; remove it on stop
+        }
+        return el;
+    }
+
+    function startFlash(from) {
+        if (flash.active) return;
+        flash.active = true;
+
+        if (UI.wrapper) UI.wrapper.classList.add('hp-incoming');
+
+        if (!flash.icons) {
+            try {
+                flash.icons = { green: dotIcon('#39ff14'), red: dotIcon('#ff2d2d') };
+            } catch (e) {
+                flash.icons = null;   // canvas blocked; title flash still works
+            }
+        }
+
+        const label = '☎ ' + (from || 'CALL') + ' CALLING';
+        flash.savedTitle = document.title;
+        flash.link = flash.icons ? faviconLink() : null;
+
+        document.title = label;
+        if (flash.link) flash.link.href = flash.icons.green;
+
+        // Reduced motion: hold the lit state. The call must still be obvious,
+        // it just must not strobe.
+        if (prefersReducedMotion()) {
+            if (flash.link) flash.link.href = flash.icons.red;
+            return;
+        }
+
+        flash.phase = false;
+        flash.timer = setInterval(function() {
+            flash.phase = !flash.phase;
+            document.title = flash.phase ? flash.savedTitle : label;
+            if (flash.link) {
+                flash.link.href = flash.phase ? flash.icons.red : flash.icons.green;
+            }
+        }, 900);
+    }
+
+    function stopFlash() {
+        if (!flash.active) return;
+        flash.active = false;
+
+        clearInterval(flash.timer);
+        flash.timer = null;
+
+        if (UI.wrapper) UI.wrapper.classList.remove('hp-incoming');
+        document.title = flash.savedTitle;
+
+        if (flash.link) {
+            if (flash.savedHref === null) {
+                flash.link.remove();          // we added it
+            } else {
+                flash.link.href = flash.savedHref;
+            }
+            flash.link = null;
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
     //  RING AUDIO
     // ════════════════════════════════════════════════════════════
 
     function startRing() {
         try { UI.ringAudio.play(); } catch(e) {}
     }
+    // Every path that silences the ring also ends the call's ringing state, so
+    // clearing the flash here means it can never be left stuck on. Outbound
+    // ringback calls startRing without startFlash; stopFlash is a no-op then.
     function stopRing() {
         try { UI.ringAudio.pause(); UI.ringAudio.currentTime = 0; } catch(e) {}
+        stopFlash();
     }
 
     // ════════════════════════════════════════════════════════════
@@ -139,7 +259,15 @@
     function setCallBtnIdleMode() {
         callActive = false;
         UI.callBtn.classList.remove('active-call');
+        UI.callBtn.classList.remove('answer-call');
         UI.callLabel.textContent = CFG.lang.btn_call;
+    }
+
+    function setCallBtnAnswerMode() {
+        callActive = false;
+        UI.callBtn.classList.remove('active-call');
+        UI.callBtn.classList.add('answer-call');
+        UI.callLabel.textContent = CFG.lang.btn_answer || 'ANSWER';
     }
 
     // ════════════════════════════════════════════════════════════
@@ -270,7 +398,9 @@
                 sessionDescriptionHandlerFactoryOptions: {
                     iceGatheringTimeout: 3000,      // Cap ICE gather at 3s (fixes 10-12s delay)
                     peerConnectionConfiguration: {
-                        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+                        iceServers: (CFG.iceServers && CFG.iceServers.length)
+                            ? CFG.iceServers
+                            : [{ urls: 'stun:stun.l.google.com:19302' }],
                         iceTransportPolicy: 'all',
                         rtcpMuxPolicy: 'require',   // Required for CyburPhone compat
                     },
@@ -278,25 +408,51 @@
                 logLevel: 'warn',
             },
             delegate: {
-                // Incoming call
+                // Inbound INVITE. Note SimpleUser rejects any INVITE arriving
+                // while a session already exists, so this never fires while the
+                // agent holds the ViciDial conference leg — that path keeps
+                // returning 486 Busy exactly as it did before.
                 onCallReceived: function() {
-                    console.log('HulkPhone: Incoming call');
+                    const from = (ua.session && ua.session.remoteIdentity)
+                        ? ua.session.remoteIdentity.uri.user : '';
+                    console.log('HulkPhone: Incoming call from ' + from);
+
+                    // A call *from* the conference extension is machine-driven,
+                    // not a human calling the agent, so it still picks up on its
+                    // own. Kept as a guard in case ViciDial is ever reconfigured
+                    // to originate toward the phone (webphone_call_seconds > 0).
+                    if (CFG.auto_answer && CFG.conf_exten && from === CFG.conf_exten) {
+                        setStatus('RING');
+                        setCallBtnCallMode();
+                        try { ua.answer(); } catch(e) { console.error('HulkPhone auto-answer failed:', e); }
+                        setTimeout(function() { if (ua.session) session = ua.session; }, 300);
+                        return;
+                    }
+
+                    // Everything else is a person calling this extension: ring
+                    // and wait for the agent, the way X-Lite/EyeBeam behave.
+                    pendingInvite = true;
                     setStatus('RING');
                     startRing();
-                    setCallBtnCallMode();
-                    // Auto-answer FIRST before attaching handlers
-                    try { ua.answer(); } catch(e) { console.error("HulkPhone auto-answer failed:", e); }
-                    // Capture session for mute/hold/DTMF
-                    setTimeout(function() { if (ua.session) session = ua.session; }, 300);
+                    startFlash(from);
+                    setCallBtnAnswerMode();
+                    if (from) {
+                        UI.dialInput.value = from;
+                        toast('INCOMING: ' + from, 4000);
+                    }
+                    if (ua.session) session = ua.session;
                 },
                 onCallAnswered: function() {
+                    pendingInvite = false;
                     stopRing();
                     setStatus('CALL');
                     setCallBtnCallMode();
                     startTimer();
                     if (ua.session) session = ua.session;
                 },
+                // Also fires when the caller gives up before the agent answers.
                 onCallHangup: function() {
+                    pendingInvite = false;
                     stopRing();
                     stopTimer();
                     setStatus('REG');
@@ -369,7 +525,14 @@
 
     function hangup() {
         if (!ua) return;
-        ua.hangup().catch(function() {});
+        // An unanswered inbound call must be declined (486), not hung up —
+        // there is no established dialog to send BYE on.
+        if (pendingInvite) {
+            pendingInvite = false;
+            ua.decline().catch(function() {});
+        } else {
+            ua.hangup().catch(function() {});
+        }
         stopRing();
         stopTimer();
         setStatus('REG');
@@ -509,12 +672,33 @@
     // ════════════════════════════════════════════════════════════
 
     function callAction() {
-        if (callActive) {
+        if (pendingInvite) {
+            answerCall();
+        } else if (callActive) {
             hangup();
         } else {
             const target = UI.dialInput.value.trim();
             placeCall(target);
         }
+    }
+
+    function answerCall() {
+        if (!ua || !pendingInvite) return;
+        // Commit to the call before accept() resolves. Clearing pendingInvite
+        // alone would leave the button in its idle branch during the accept
+        // round-trip, so a second click would dial the caller back instead of
+        // ending the call; flipping to call mode makes it hang up. onCallAnswered
+        // then confirms the state once the dialog is established.
+        pendingInvite = false;
+        stopRing();
+        setStatus('CONN');
+        setCallBtnCallMode();
+        ua.answer().catch(function(err) {
+            console.error('HulkPhone answer error:', err);
+            setStatus('REG');
+            setCallBtnIdleMode();
+            toast('ANSWER FAILED', 2000);
+        });
     }
 
     // ════════════════════════════════════════════════════════════
@@ -541,6 +725,7 @@
 
     window.HulkPhone = {
         callAction:     callAction,
+        answerCall:     answerCall,
         hangup:         hangup,
         toggleMute:     toggleMute,
         toggleHold:     toggleHold,
