@@ -336,9 +336,19 @@ section "STEP 8: HulkPhone WebRTC Softphone"
 HULK_REPO="https://github.com/FrancoSmash73/Hulk-.git"
 HULKPHONE_SOURCED_FROM_REPO=false
 
-if [ -d "${HULKPHONE_DIR}/.git" ] && \
-   [ "$(git -C "${HULKPHONE_DIR}" remote get-url origin 2>/dev/null)" = "${HULK_REPO}" ]; then
-    log "HulkPhone already git-deployed — updating in place..."
+# Same repo can legitimately be cloned via https:// or git@ (SSH) — an exact
+# string match against one hardcoded protocol would treat an existing SSH
+# clone as "not ours" and back up/re-clone a perfectly good deployment
+# (and, worse, lose whatever config.local.php it left behind in the process:
+# TURN credentials etc. aren't seeded back in on a fresh clone). Compare
+# owner/repo identity instead of the full URL.
+repo_slug() { echo "$1" | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##'; }
+HULK_REPO_SLUG="$(repo_slug "${HULK_REPO}")"
+EXISTING_REMOTE="$(git -C "${HULKPHONE_DIR}" remote get-url origin 2>/dev/null || true)"
+
+if [ -d "${HULKPHONE_DIR}/.git" ] && [ -n "${EXISTING_REMOTE}" ] && \
+   [ "$(repo_slug "${EXISTING_REMOTE}")" = "${HULK_REPO_SLUG}" ]; then
+    log "HulkPhone already git-deployed (${EXISTING_REMOTE}) — updating in place..."
     if git -C "${HULKPHONE_DIR}" fetch --depth 1 origin main 2>/dev/null && \
        git -C "${HULKPHONE_DIR}" reset --hard origin/main 2>/dev/null; then
         HULKPHONE_SOURCED_FROM_REPO=true
