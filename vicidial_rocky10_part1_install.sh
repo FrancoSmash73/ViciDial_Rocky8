@@ -1,4 +1,4 @@
-!/bin/bash
+#!/bin/bash
 ################################################################################
 # ViciDial ULTIMATE Installation - Part 1 v1.3
 # Foundation: Dependencies, Database, Web Server, Perl Modules
@@ -63,6 +63,17 @@ handle_error() {
 VERSION="1.3"
 SCRIPT_NAME="ViciDial ULTIMATE Part 1"
 START_TIME=$(date +%s)
+
+# Load shared version config (PHP_VERSION, ASTERISK_VICI_VERSION) — falls back
+# to known-good defaults if this script was copied out on its own.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [ -f "$SCRIPT_DIR/configs/versions.conf" ]; then
+    # shellcheck source=configs/versions.conf
+    source "$SCRIPT_DIR/configs/versions.conf"
+else
+    echo "[WARNING] configs/versions.conf not found — using built-in defaults" >&2
+    PHP_VERSION="8.3"
+fi
 
 # Progress tracking
 PROGRESS_FILE="/root/.vicidial_ultimate_part1_progress"
@@ -416,7 +427,7 @@ if ! is_complete "PHP_INSTALL"; then
     
     log "Enabling PHP 8.3 module from Remi..."
     dnf module reset php -y
-    dnf module enable php:remi-8.3 -y
+    dnf module enable "php:remi-${PHP_VERSION}" -y
     
     log "Installing PHP 8.3 and extensions..."
     dnf install -y \

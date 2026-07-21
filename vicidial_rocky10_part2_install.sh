@@ -340,6 +340,18 @@ section "INITIALIZING VICIDIAL ULTIMATE PART 2 INSTALLATION v11.2"
 VERSION="11.0"
 INSTALL_MARKER="/root/.vicidial_part2_progress"
 
+# Load shared version config (ASTERISK_VICI_VERSION) — falls back to a
+# known-good default if this script was copied out on its own.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [ -f "$SCRIPT_DIR/configs/versions.conf" ]; then
+    # shellcheck source=configs/versions.conf
+    source "$SCRIPT_DIR/configs/versions.conf"
+else
+    echo "[WARNING] configs/versions.conf not found — using built-in defaults" >&2
+    ASTERISK_VICI_VERSION="18.21.0-vici"
+    ASTERISK_PLAIN_VERSION="18.26.4"
+fi
+
 if [ ! -f "$INSTALL_MARKER" ]; then
 log "First run - creating install marker at $INSTALL_MARKER"
 touch "$INSTALL_MARKER"
@@ -876,14 +888,14 @@ mkdir -p /usr/src/asterisk
 cd /usr/src/asterisk
 
 AST_BUILD_DIR=""
-VICI_TARBALL="asterisk-18.21.0-vici.tar.gz"
-PLAIN_TARBALL="asterisk-18.26.4.tar.gz"
-VICI_DIR="asterisk-18.21.0-vici"
-PLAIN_DIR="asterisk-18.26.4"
+VICI_TARBALL="asterisk-${ASTERISK_VICI_VERSION}.tar.gz"
+PLAIN_TARBALL="asterisk-${ASTERISK_PLAIN_VERSION}.tar.gz"
+VICI_DIR="asterisk-${ASTERISK_VICI_VERSION}"
+PLAIN_DIR="asterisk-${ASTERISK_PLAIN_VERSION}"
 
 rm -rf "$VICI_TARBALL" "$VICI_DIR" "$PLAIN_TARBALL" "$PLAIN_DIR"
 
-log "Phase 1: Trying asterisk-18.21.0-vici from download.vicidial.com..."
+log "Phase 1: Trying $VICI_DIR from download.vicidial.com..."
 DOWNLOAD_OK=false
 for attempt in 1 2 3; do
 log "Download attempt $attempt/3..."
@@ -903,8 +915,8 @@ tar -xzvf "$VICI_TARBALL"
 AST_BUILD_DIR="/usr/src/asterisk/$VICI_DIR"
 info "Using pre-patched ViciDial tarball: $VICI_DIR"
 else
-warning "ViciDial tarball unavailable. Falling back to plain asterisk-18.26.4 + manual patches."
-log "Phase 2: Downloading plain asterisk-18.26.4 from asterisk.org..."
+warning "ViciDial tarball unavailable. Falling back to plain $PLAIN_DIR + manual patches."
+log "Phase 2: Downloading plain $PLAIN_DIR from asterisk.org..."
 for attempt in 1 2 3; do
 log "Download attempt $attempt/3..."
 if wget --tries=2 --timeout=60 -q --show-progress \

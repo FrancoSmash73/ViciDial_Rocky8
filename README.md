@@ -12,6 +12,7 @@
 | `vicidial_rocky10_part1_install.sh` | Base OS packages, Asterisk build, ViciDial SVN checkout, Perl modules |
 | `vicidial_rocky10_part2_install.sh` | ViciDial database setup, Asterisk config, ConfBridge, process management |
 | `vicidial_rocky10_part3_process_mgmt.sh` | **Standalone addon** — process management only, safe to run on any existing ViciDial install |
+| `vicidial_rocky10_part4_webrtc.sh` | **Standalone addon** — WebRTC/WSS (Asterisk http.conf + pjsip transport-wss), Let's Encrypt SSL, HulkPhone softphone deploy. Run after Parts 1–3. |
 
 ## Documentation
 
@@ -38,11 +39,38 @@ chmod +x vicidial_rocky10_part2_install.sh
 # Part 3 — Standalone process management addon (run on any existing install)
 chmod +x vicidial_rocky10_part3_process_mgmt.sh
 ./vicidial_rocky10_part3_process_mgmt.sh
+
+# Part 4 — WebRTC/WSS, Let's Encrypt SSL, HulkPhone softphone (optional, run after Parts 1-3)
+chmod +x vicidial_rocky10_part4_webrtc.sh
+./vicidial_rocky10_part4_webrtc.sh --domain yourdomain.example.com
+# add --skip-audit to skip the automatic post-install audit at the end
 ```
 
 All scripts are **idempotent** — safe to re-run. Parts 1 and 2 track progress in
 `/root/.vicidial_part1_progress` and `/root/.vicidial_part2_progress` and will
-prompt skip/re-run/quit for each completed step.
+prompt skip/re-run/quit for each completed step. Parts 3 and 4 achieve idempotency
+by checking real on-disk/system state before each step (e.g. "is this file already
+deployed?") rather than a separate progress file — also safe to re-run.
+
+### Version configuration
+
+`configs/versions.conf` holds the versions Part 1 and Part 2 actually target
+(PHP via the Remi module stream, and the Asterisk-vici / fallback plain-Asterisk
+tarball versions). Edit it before running the installer to change these. Not
+every version string in this project is independently pinnable this way — see
+the notes inside `versions.conf` (MariaDB, for instance, comes from Rocky 10's
+native default module stream and isn't selected by these scripts today).
+
+### Post-install audit
+
+`vicidial_rocky10_audit.sh` runs automatically at the end of Part 4 (unless
+`--skip-audit` is passed) and checks screen sessions, DB schema, the keepalive
+timer, crontab, Perl modules, core services, and WebRTC/PJSIP config. **On a
+multi-server cluster, read its output in context of that node's role** — it
+checks for mariadb/httpd/asterisk/process-monitor together, so a FAIL for a
+service that doesn't belong on this particular node (e.g. `mariadb` on an
+Asterisk-only box) is expected, not a real problem. You can also run it by
+hand any time: `bash vicidial_rocky10_audit.sh`.
 
 ---
 

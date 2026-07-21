@@ -21,8 +21,8 @@
 #   - This script run as root
 #
 # Usage:
-#   bash vicidial_rocky10_part4_webrtc.sh --domain callbakz.ddns.net
-#   bash vicidial_rocky10_part4_webrtc.sh --domain callbakz.ddns.net --skip-certbot
+#   bash vicidial_rocky10_part4_webrtc.sh --domain yourdomain.example.com
+#   bash vicidial_rocky10_part4_webrtc.sh --domain yourdomain.example.com --skip-certbot
 # =============================================================================
 
 set -euo pipefail
@@ -40,14 +40,18 @@ section() { echo -e "\n${BOLD}${CYAN}═══ $* ═══${NC}\n"; }
 # ── Argument parsing ──────────────────────────────────────────────────────────
 DOMAIN=""
 SKIP_CERTBOT=false
+SKIP_AUDIT=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --domain)   DOMAIN="$2"; shift 2 ;;
         --skip-certbot) SKIP_CERTBOT=true; shift ;;
+        --skip-audit) SKIP_AUDIT=true; shift ;;
         *) error "Unknown argument: $1" ;;
     esac
 done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 [ -z "$DOMAIN" ] && error "Usage: $0 --domain your.domain.com [--skip-certbot]"
 [ "$(id -u)" -ne 0 ] && error "Must be run as root"
@@ -625,3 +629,20 @@ echo -e "     for each WebRTC phone in the ViciDial DB (HulkPhone auths with"
 echo -e "     conf_secret, so it must match the PJSIP auth password)"
 echo -e "  3. Verify: asterisk -rx \"module show like res_pjsip_transport_websocket\""
 echo ""
+
+# =============================================================================
+# STEP 11: Automatic post-install audit
+# =============================================================================
+if [ "$SKIP_AUDIT" = true ]; then
+    info "Skipping post-install audit (--skip-audit)"
+elif [ -f "$SCRIPT_DIR/vicidial_rocky10_audit.sh" ]; then
+    section "STEP 11: Post-Install Audit"
+    warning "This audit checks for mariadb/httpd/asterisk/process-monitor together."
+    warning "On a multi-server cluster, FAILs for services that don't belong on"
+    warning "THIS node's role (e.g. 'mariadb FAIL' on an Asterisk-only box) are"
+    warning "expected — read results in context of what this specific node runs."
+    bash "$SCRIPT_DIR/vicidial_rocky10_audit.sh" || warning "Audit reported issues above — review before considering this node done"
+else
+    warning "vicidial_rocky10_audit.sh not found next to this script — skipping automatic audit"
+    info "Run it manually later: bash vicidial_rocky10_audit.sh"
+fi
