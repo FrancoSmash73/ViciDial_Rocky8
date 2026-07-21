@@ -89,8 +89,19 @@ which caught two more real issues before/during the run:
 
 End state on CVS: `deploy/verify.sh` 8/8 passing, `git status` clean,
 `config.local.php`'s real TURN credentials (`149.28.69.52:3478`) intact
-throughout. **Oliver has not been touched with this yet** — same code, but
-a separate, deliberate run.
+throughout.
+
+**Run for real against Oliver's live `/var/www/html/hulkphone` on
+2026-07-20** with both fixes already in place — no new issues this time.
+Oliver's remote was already the HTTPS form (the SSH-mismatch fix wasn't
+even needed here), and `deploy/verify.sh` was 8/8 on the first try:
+`config.local.php` untouched (`sip_domain=dialengine.ddns.net`,
+`turn_server` still empty, matching Oliver's direct public IP / no CGNAT),
+`git status` clean immediately, and ownership moved from a mixed
+`apache:apache`/`root:root` state to fully `root:root` (except
+`config.local.php`, `root:apache` as designed) with no group/world-writable
+files anywhere. Both CVS and Oliver are now running the same,
+fully-fixed deployment mechanism.
 
 ---
 
@@ -107,9 +118,8 @@ irreversible in the way a config change isn't. Don't do this without:
   until the 20 build has run clean for a real stretch of time)
 
 **2. ~~Change Part 4 to deploy HulkPhone via git-clone instead of vendoring?~~**
-Implemented 2026-07-20 — see the RESOLVED note above. Still needs: an actual
-run against a real box (CVS or Oliver) to confirm it behaves the same in
-practice as it did in the isolated test, and a decision on whether to drop
+Implemented and run for real on both CVS and Oliver, 2026-07-20 — see the
+RESOLVED note above. Only remaining open question: whether to drop
 `configs/hulkphone/` entirely now that it's a fallback-of-a-fallback (only
 used if the `Hulk-` clone itself fails, e.g. a fully offline install).
 
