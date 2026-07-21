@@ -44,16 +44,32 @@ is identical and complete. **The only real remaining divergence in this
 section is the Asterisk major version (20 plain vs. 18.21.0-vici) — chan_sip
 is a settled fact on both boxes, not an open item.**
 
-### 2. HulkPhone deployment mechanism
+### 2. HulkPhone deployment mechanism — RESOLVED 2026-07-20
 
-| | `vicidial-rocky10` Part 4 script | Oliver (live) |
+| | `vicidial-rocky10` Part 4 script (before) | Oliver (live) |
 |---|---|---|
-| Method | Copies a **vendored static snapshot** at `configs/hulkphone/` | **Live `git clone`** of `github.com/FrancoSmash73/Hulk-` |
-| Currency | Confirmed ~2 months stale (May 9 snapshot vs. Hulk-'s July 9 tip) — missing 6 real upstream fixes, including a ring-before-answer behavior change and a tab-flash notification feature | Current, plus a `deploy/` hardening layer not present anywhere in the vendored copy: `deny-git.conf`, `hulkphone-noindex.conf`, a fail2ban loopback exemption, and a `verify.sh` health check (confirmed 8/8 passing against `wss://dialengine.ddns.net:8089/ws`) |
+| Method | `git clone --depth 1` to a **temp dir**, `cp` the files out, then `rm -rf` the clone — so the result on disk had no `.git`, no update path, and none of the real repo's hardening | **Live `git clone`** of `github.com/FrancoSmash73/Hulk-`, left in place |
+| Currency | The one true fallback path (`configs/hulkphone/`, used only if the clone itself failed) was confirmed ~2 months stale (May 9 vs. Hulk-'s July 9 tip) — already synced separately this session | Current, plus a `deploy/` hardening layer: `deny-git.conf`, `hulkphone-noindex.conf`, a fail2ban loopback exemption, and a `verify.sh` health check (confirmed 8/8 passing against `wss://dialengine.ddns.net:8089/ws`) |
 
-The vendored copy went stale because there's no mechanism keeping it in sync
-with the real repo — every fix landed on Oliver (or wherever it was actually
-developed) never flows back into what Part 4 ships to a fresh install.
+**Fixed**: Part 4's Step 8 now clones `Hulk-` directly into
+`/var/www/html/hulkphone` and leaves the `.git` in place (`git -C
+/var/www/html/hulkphone pull` works afterward), ports in the same
+`deploy/` hardening Oliver already proved (deny-git, noindex, fail2ban
+loopback exemption, `verify.sh` run against loopback as a non-fatal
+post-deploy check), and seeds `config.local.php` from the script's own
+`--domain` flag on first run without touching it again on re-runs. Re-runs
+detect the existing checkout by matching `git remote get-url origin` and
+fast-forward via `fetch --depth 1 && reset --hard`; anything found on disk
+that isn't that checkout (an old vendored-copy install, manual content) gets
+moved aside to a timestamped backup rather than silently overwritten.
+Verified in an isolated scratch directory (fresh clone, idempotent re-run,
+stale-checkout update, non-git-content preservation, and a real permission
+bug this testing caught: the bulk `chmod 644` lockdown was clobbering
+`config.local.php`'s `640 root:apache` permissions back to world-readable on
+every re-run after the first — fixed by re-applying that chmod
+unconditionally after the bulk pass). **Not yet run against CVS or Oliver's
+live `/var/www/html/hulkphone`** — that's a separate, deliberate step from
+implementing the installer change itself.
 
 ---
 
@@ -69,12 +85,12 @@ irreversible in the way a config change isn't. Don't do this without:
 - A rollback plan (Oliver's current 18.21.0-vici build should stay recoverable
   until the 20 build has run clean for a real stretch of time)
 
-**2. Change Part 4 to deploy HulkPhone via git-clone instead of vendoring?**
-This one's lower-stakes and the evidence already points one way: Oliver's
-approach is proven (8/8 verify checks) and self-updating in a way the
-vendored copy structurally can't be. Recommend adopting it — port
-`deploy/verify.sh` and the three hardening configs into Part 4 as the new
-standard, and drop the static `configs/hulkphone/` vendoring once that's done.
+**2. ~~Change Part 4 to deploy HulkPhone via git-clone instead of vendoring?~~**
+Implemented 2026-07-20 — see the RESOLVED note above. Still needs: an actual
+run against a real box (CVS or Oliver) to confirm it behaves the same in
+practice as it did in the isolated test, and a decision on whether to drop
+`configs/hulkphone/` entirely now that it's a fallback-of-a-fallback (only
+used if the `Hulk-` clone itself fails, e.g. a fully offline install).
 
 ---
 

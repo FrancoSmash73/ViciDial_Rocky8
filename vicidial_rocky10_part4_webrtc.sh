@@ -10,7 +10,9 @@
 #   3. Obtains a Let's Encrypt certificate for your domain (certbot)
 #   4. Installs an Asterisk cert-renewal deploy hook
 #   5. Updates Apache SSL vhost to use the Let's Encrypt cert
-#   6. Deploys the HulkPhone WebRTC softphone
+#   6. Deploys the HulkPhone WebRTC softphone as a live git clone (updatable
+#      in place with `git -C /var/www/html/hulkphone pull`), plus its
+#      deny-.git / no-directory-listing / fail2ban-loopback hardening
 #   7. Opens firewall ports 8088/8089
 #   8. Reloads/restarts services
 #
@@ -321,37 +323,118 @@ success "Certbot deploy hook installed: ${DEPLOY_HOOK}"
 # =============================================================================
 section "STEP 8: HulkPhone WebRTC Softphone"
 
-# Primary source of truth: FrancoSmash73/Hulk- — this is the maintained repo
-# with the real hulkphone.v2.js and hulkphone.css (this installer previously
-# carried its own separate inline copy of hulkphone.php that had drifted from
-# the real one and didn't ship the JS/CSS at all, forcing a manual scp step
-# from a working server on every install). Clone it fresh each run so fixes
-# made upstream (e.g. to hulkphone.php) land automatically; fall back to the
-# bundled inline copy only if the clone can't happen (offline install).
+# Primary source of truth: FrancoSmash73/Hulk- — the maintained repo with the
+# real hulkphone.v2.js/hulkphone.css and a deploy/ folder of hardening this
+# installer used to have no equivalent for at all. Deployed as a LIVE git
+# clone (not a clone-to-tempdir-then-copy-then-discard snapshot): the .git
+# stays in place so a fix landed upstream can be picked up later with
+# `git -C ${HULKPHONE_DIR} pull` instead of re-running this whole script, and
+# so deploy/'s hardening (deny .git, no directory listing, fail2ban loopback
+# exemption, verify.sh) ships and applies automatically from the same clone.
+# Falls back to a bundled inline copy only if cloning isn't possible at all
+# (offline install) — see the fallback branch below.
 HULK_REPO="https://github.com/FrancoSmash73/Hulk-.git"
-HULK_CLONE_DIR="$(mktemp -d)"
 HULKPHONE_SOURCED_FROM_REPO=false
 
-mkdir -p "${HULKPHONE_DIR}"
-
-if command -v git &>/dev/null && git clone --depth 1 "${HULK_REPO}" "${HULK_CLONE_DIR}" &>/dev/null; then
-    cp -r "${HULK_CLONE_DIR}/hulkphone.php" "${HULK_CLONE_DIR}/css" \
-          "${HULK_CLONE_DIR}/js" "${HULK_CLONE_DIR}/images" \
-          "${HULK_CLONE_DIR}/sounds" "${HULKPHONE_DIR}/" 2>/dev/null
-    if [ -f "${HULKPHONE_DIR}/hulkphone.php" ] && [ -f "${HULKPHONE_DIR}/js/hulkphone.v2.js" ]; then
+if [ -d "${HULKPHONE_DIR}/.git" ] && \
+   [ "$(git -C "${HULKPHONE_DIR}" remote get-url origin 2>/dev/null)" = "${HULK_REPO}" ]; then
+    log "HulkPhone already git-deployed — updating in place..."
+    if git -C "${HULKPHONE_DIR}" fetch --depth 1 origin main 2>/dev/null && \
+       git -C "${HULKPHONE_DIR}" reset --hard origin/main 2>/dev/null; then
         HULKPHONE_SOURCED_FROM_REPO=true
-        success "HulkPhone deployed from ${HULK_REPO} (includes hulkphone.v2.js and hulkphone.css)"
+        success "HulkPhone updated in place (git pull) from ${HULK_REPO}"
     else
-        warning "Clone succeeded but expected files were missing — falling back to bundled copy"
+        warning "git update failed (offline?) — leaving existing deployment as-is"
+        HULKPHONE_SOURCED_FROM_REPO=true   # already deployed, just couldn't refresh
+    fi
+elif command -v git &>/dev/null; then
+    if [ -e "${HULKPHONE_DIR}" ] && [ -n "$(ls -A "${HULKPHONE_DIR}" 2>/dev/null)" ]; then
+        # Something's there already but it isn't our git checkout — an old
+        # vendored-copy install, or manual content. Move it aside rather
+        # than silently overwrite or lose it; `git clone` refuses a
+        # non-empty target anyway.
+        BK="${HULKPHONE_DIR}.pre-git-$(date +%Y%m%d-%H%M%S)"
+        mv "${HULKPHONE_DIR}" "${BK}"
+        warning "Existing non-git HulkPhone deployment moved to ${BK}"
+    fi
+    if git clone --depth 1 --branch main "${HULK_REPO}" "${HULKPHONE_DIR}" &>/dev/null; then
+        HULKPHONE_SOURCED_FROM_REPO=true
+        success "HulkPhone cloned from ${HULK_REPO}"
+    else
+        warning "Could not clone ${HULK_REPO} (offline install?) — falling back to bundled copy"
+        rm -rf "${HULKPHONE_DIR}"
     fi
 else
-    warning "Could not clone ${HULK_REPO} (offline install?) — falling back to bundled copy"
+    warning "git not available — falling back to bundled copy"
 fi
-rm -rf "${HULK_CLONE_DIR}"
 
 if [ "${HULKPHONE_SOURCED_FROM_REPO}" = true ]; then
-    chown -R apache:apache "${HULKPHONE_DIR}" 2>/dev/null || chown -R www-data:www-data "${HULKPHONE_DIR}" 2>/dev/null || true
-    chmod -R 755 "${HULKPHONE_DIR}"
+    # Root owns the checkout — the web server user gets read-only access via
+    # world-readable bits, not ownership, so a compromised PHP/Apache process
+    # can't modify its own served files or the .git history underneath them.
+    chown -R root:root "${HULKPHONE_DIR}"
+    find "${HULKPHONE_DIR}" -type d -exec chmod 755 {} +
+    find "${HULKPHONE_DIR}" -type f -exec chmod 644 {} +
+    find "${HULKPHONE_DIR}" -name "*.sh" -exec chmod 755 {} +
+
+    # config.local.php holds per-install SIP/TURN settings (gitignored, so a
+    # `git reset --hard` above never touches it). Create it once, seeded with
+    # the domain this script already knows about; never touch its CONTENT
+    # again once it exists, so manual edits (TURN creds, etc.) survive every
+    # re-run. Its 640/root:apache permissions are re-applied unconditionally
+    # every run, though — the bulk chmod 644 above would otherwise clobber
+    # them back to world-readable on every re-run after the first.
+    HULK_CFG="${HULKPHONE_DIR}/config.local.php"
+    if [ ! -f "${HULK_CFG}" ] && [ -f "${HULKPHONE_DIR}/config.local.example.php" ]; then
+        cp "${HULKPHONE_DIR}/config.local.example.php" "${HULK_CFG}"
+        sed -i "s/'sip_domain'  => '',/'sip_domain'  => '${DOMAIN}',/" "${HULK_CFG}"
+        success "config.local.php created (sip_domain=${DOMAIN})"
+    else
+        success "config.local.php already present — left untouched"
+    fi
+    if [ -f "${HULK_CFG}" ]; then
+        chown root:apache "${HULK_CFG}"
+        chmod 640 "${HULK_CFG}"
+    fi
+
+    # Hardening from the repo's own deploy/ folder — always ships with the
+    # clone, so it can't drift from what Hulk- actually recommends.
+    HULK_DEPLOY_DIR="${HULKPHONE_DIR}/deploy"
+    if [ -d "${HULK_DEPLOY_DIR}" ]; then
+        # HulkPhone is served under the global DocumentRoot (/var/www/html),
+        # not its own Alias block, so the noindex config is always the right
+        # case here (see deploy/README.md for the Alias alternative).
+        cp -f "${HULK_DEPLOY_DIR}/apache/deny-git.conf"          /etc/httpd/conf.d/deny-git.conf 2>/dev/null || \
+            warning "deploy/apache/deny-git.conf missing from clone — .git will NOT be blocked from the web"
+        cp -f "${HULK_DEPLOY_DIR}/apache/hulkphone-noindex.conf" /etc/httpd/conf.d/hulkphone-noindex.conf 2>/dev/null || \
+            warning "deploy/apache/hulkphone-noindex.conf missing from clone — directory listing will NOT be disabled"
+        if apachectl configtest &>/dev/null; then
+            systemctl reload httpd 2>/dev/null || true
+            success "Apache hardening applied (.git denied, directory listing off)"
+        else
+            warning "apachectl configtest failed after installing HulkPhone Apache hardening — check /etc/httpd/conf.d/deny-git.conf and hulkphone-noindex.conf"
+        fi
+
+        if command -v fail2ban-client &>/dev/null && [ -f "${HULK_DEPLOY_DIR}/fail2ban/zzz-ignoreip.local" ]; then
+            cp -f "${HULK_DEPLOY_DIR}/fail2ban/zzz-ignoreip.local" /etc/fail2ban/jail.d/zzz-ignoreip.local
+            if fail2ban-client -t &>/dev/null; then
+                fail2ban-client reload &>/dev/null || true
+                success "fail2ban loopback exemption applied (127.0.0.0/8, ::1)"
+            else
+                warning "fail2ban-client -t failed after installing zzz-ignoreip.local — check /etc/fail2ban/jail.d/"
+            fi
+        fi
+
+        # Loopback only — verify.sh deliberately requests paths Apache must
+        # deny, and running it against a public URL risks fail2ban banning
+        # the caller (see deploy/README.md). Non-fatal: a failure here is a
+        # signal to look, not a reason to abort the rest of Part 4.
+        if [ -x "${HULK_DEPLOY_DIR}/verify.sh" ]; then
+            log "Running HulkPhone deploy verification (loopback only)..."
+            bash "${HULK_DEPLOY_DIR}/verify.sh" http://127.0.0.1 || \
+                warning "HulkPhone verify.sh reported failures — review above before considering this step done"
+        fi
+    fi
 else
 
 mkdir -p "${HULKPHONE_DIR}/js" "${HULKPHONE_DIR}/css" "${HULKPHONE_DIR}/sounds"

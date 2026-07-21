@@ -70,8 +70,10 @@ of docs.
 
 - Oliver → Asterisk 20 migration decision (see `CVS_OLIVER_DIVERGENCE.md`) —
   deliberately deferred, needs its own planned session.
-- `vicidial-rocky10` Part 4 HulkPhone deployment mechanism update (vendoring
-  → git-clone + hardening) — lower-risk, recommended next.
+- `vicidial-rocky10` Part 4 HulkPhone deployment mechanism (git-clone in place
+  + hardening, matching Oliver's proven approach) — **implemented 2026-07-20**,
+  see `CVS_OLIVER_DIVERGENCE.md`. Verified in an isolated test, not yet run
+  against a real box.
 - `pjsip-fail2ban-hardening` branch — validated, cleaned up, ready for a real
   merge review into `main`.
 - `vicidial-installer`'s leaked-credential git history — repo is private now

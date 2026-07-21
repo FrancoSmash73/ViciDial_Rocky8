@@ -72,6 +72,21 @@ service that doesn't belong on this particular node (e.g. `mariadb` on an
 Asterisk-only box) is expected, not a real problem. You can also run it by
 hand any time: `bash vicidial_rocky10_audit.sh`.
 
+### HulkPhone deployment
+
+Part 4 deploys the [HulkPhone](https://github.com/FrancoSmash73/Hulk-) WebRTC
+softphone as a **live git clone** at `/var/www/html/hulkphone` — not a
+one-time copy. Re-running Part 4 later (or `git -C /var/www/html/hulkphone
+pull` by hand) picks up upstream fixes without a full reinstall. The clone
+brings its own `deploy/` hardening along with it, applied automatically:
+`.git` denied from the web, directory listing off, a fail2ban loopback
+exemption (so the health check below can't ban your own server), and
+`deploy/verify.sh` run once against loopback as a non-fatal post-deploy
+check. `config.local.php` (SIP/TURN settings) is seeded from `--domain` on
+first run and never touched again on re-runs, so manual edits survive.
+Falls back to a bundled inline copy (`configs/hulkphone/`, offline-only) if
+the clone can't reach GitHub at all.
+
 ---
 
 ## Rocky Linux 10 Compatibility Notes
