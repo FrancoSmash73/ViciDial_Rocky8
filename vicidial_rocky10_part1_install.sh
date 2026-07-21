@@ -554,6 +554,18 @@ Alias /RECORDINGS/MP3 "/var/spool/asterisk/monitorDONE/MP3/"
     Require all granted
 </Directory>
 EOF
+
+    # Match Apache's proxy timeout to the PHP execution allowance set above
+    # (max_execution_time=3330 / max_input_time=3360 / default_socket_timeout=3360).
+    # mod_proxy_fcgi defaults ProxyTimeout to 60s regardless of PHP's own limits, so
+    # long-running admin scripts (e.g. admin_listloader_fifth_gen.php on large lists)
+    # would 504 well before PHP finished — PHP kept processing in the background and
+    # the work completed, but the client never saw a response. Named zz- so it loads
+    # last / wins, same convention as the fail2ban zz-vicidial.local fix.
+    cat > /etc/httpd/conf.d/zz-vicidial-proxytimeout.conf << 'EOF'
+Timeout 3600
+ProxyTimeout 3600
+EOF
     
     systemctl enable httpd
     systemctl start httpd
