@@ -84,8 +84,9 @@ exemption (so the health check below can't ban your own server), and
 `deploy/verify.sh` run once against loopback as a non-fatal post-deploy
 check. `config.local.php` (SIP/TURN settings) is seeded from `--domain` on
 first run and never touched again on re-runs, so manual edits survive.
-Falls back to a bundled inline copy (`configs/hulkphone/`, offline-only) if
-the clone can't reach GitHub at all.
+Falls back to a bare-bones inline PHP shell (no working dialer — see the
+in-script note) only if the clone can't reach GitHub at all; re-running
+once network access is restored deploys the real thing automatically.
 
 ---
 

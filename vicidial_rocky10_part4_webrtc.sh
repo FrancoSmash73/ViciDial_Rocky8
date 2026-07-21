@@ -470,9 +470,15 @@ fi
 # Write hulkphone.php (PHP config injector + HTML shell)
 # FALLBACK ONLY — used when the Hulk- repo can't be cloned (offline install).
 # This inline copy has no SESSION/AUTOANSWER call-auto-dial polish beyond the
-# basics and does not ship hulkphone.v2.js/hulkphone.css (see NOTE below) —
-# it exists so the install doesn't hard-fail without network access, not as
-# a maintained alternative to the real repo.
+# basics and does not ship hulkphone.v2.js/hulkphone.css at all (see warning
+# below) — it exists so the install doesn't hard-fail without network access,
+# not as a maintained alternative to the real repo. A previous version of
+# this script also vendored a static hulkphone.v2.js/hulkphone.css copy at
+# configs/hulkphone/ as a fallback-of-a-fallback; dropped 2026-07-20 because
+# nothing kept it in sync with the real repo (it had already drifted ~2
+# months stale once) and because a box that can't reach GitHub here already
+# couldn't reach it for Part 1/2's package/source downloads either — the
+# offline scenario this was covering doesn't survive that far in practice.
 cat > "${HULKPHONE_DIR}/hulkphone.php" << 'HULKPHP'
 <?php
 /**
@@ -617,27 +623,20 @@ HULKPHP
 
 chown -R apache:apache "${HULKPHONE_DIR}" 2>/dev/null || chown -R www-data:www-data "${HULKPHONE_DIR}" 2>/dev/null || true
 chmod -R 755 "${HULKPHONE_DIR}"
-success "HulkPhone deployed to ${HULKPHONE_DIR}"
+warning "HulkPhone shell deployed to ${HULKPHONE_DIR} WITHOUT a working softphone"
 
 cat << 'HULKNOTE'
-  NOTE: hulkphone.v2.js and hulkphone.css are NOT included in this repo
-  (they contain the SIP.js integration logic and styling).
-  Copy them from your working server:
-    scp root@<working-server>:/var/www/html/hulkphone/js/hulkphone.v2.js  <here>
-    scp root@<working-server>:/var/www/html/hulkphone/css/hulkphone.css   <here>
-  Or place them in configs/hulkphone/ and this script will copy them automatically.
+  hulkphone.v2.js and hulkphone.css are NOT included here — this fallback
+  only runs when https://github.com/FrancoSmash73/Hulk-.git couldn't be
+  cloned, and the real JS/CSS live only in that repo. The page above will
+  load but the dialer will not function (both <script> and <link> tags
+  404) until you either:
+    - restore network access and re-run this script — it will then clone
+      Hulk- directly and deploy the real, working softphone, or
+    - manually copy the two files from a working install:
+        scp root@<working-server>:/var/www/html/hulkphone/js/hulkphone.v2.js  /var/www/html/hulkphone/js/
+        scp root@<working-server>:/var/www/html/hulkphone/css/hulkphone.css   /var/www/html/hulkphone/css/
 HULKNOTE
-
-# Auto-copy from configs/ if present
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "${SCRIPT_DIR}/configs/hulkphone/hulkphone.v2.js" ]; then
-    cp "${SCRIPT_DIR}/configs/hulkphone/hulkphone.v2.js" "${HULKPHONE_DIR}/js/"
-    success "hulkphone.v2.js copied from configs/"
-fi
-if [ -f "${SCRIPT_DIR}/configs/hulkphone/hulkphone.css" ]; then
-    cp "${SCRIPT_DIR}/configs/hulkphone/hulkphone.css" "${HULKPHONE_DIR}/css/"
-    success "hulkphone.css copied from configs/"
-fi
 
 fi   # end fallback path (HULKPHONE_SOURCED_FROM_REPO = false)
 

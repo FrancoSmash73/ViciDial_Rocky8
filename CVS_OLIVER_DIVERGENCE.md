@@ -119,9 +119,12 @@ irreversible in the way a config change isn't. Don't do this without:
 
 **2. ~~Change Part 4 to deploy HulkPhone via git-clone instead of vendoring?~~**
 Implemented and run for real on both CVS and Oliver, 2026-07-20 — see the
-RESOLVED note above. Only remaining open question: whether to drop
-`configs/hulkphone/` entirely now that it's a fallback-of-a-fallback (only
-used if the `Hulk-` clone itself fails, e.g. a fully offline install).
+RESOLVED note above. **`configs/hulkphone/` dropped entirely, same day** —
+it had no sync mechanism (already drifted ~2 months stale once) and only
+covered a fully-offline-during-Part-4 scenario that Parts 1/2 wouldn't have
+survived to reach anyway. The offline fallback now deploys a shell that's
+honest about not working (both `<script>`/`<link>` tags 404) instead of a
+vendored copy that silently rots.
 
 ---
 
