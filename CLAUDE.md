@@ -234,8 +234,14 @@ systemctl status nftables       # Must be disabled/inactive
 nft list ruleset | grep "saddr !="   # Must return nothing
 
 # Carriers whitelisted on this server:
-# 66.209.76.0/24  — DID4Sale (inbound DIDs)
-# 88.151.128.22   — TBI-OUT (outbound SIP trunk)
+# 88.151.128.22   — TBI-OUT (outbound SIP trunk; no explicit firewall rule needed —
+#                   outbound-initiated, return traffic rides conntrack established state)
+#
+# DID4Sale (66.209.76.0/24) — decommissioned as of 2026-07-21, no longer in use.
+# Confirmed no trace anywhere (no firewall rule, no PJSIP config, no DB carrier entry).
+# Same audit also found and removed a stray, unexplained 5060/udp allow for a
+# DigitalOcean IP (167.99.243.205) that matched no configured carrier — if a similar
+# unrecognized rule turns up again, treat it as suspicious and verify before keeping it.
 
 # Add a new carrier IP
 firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="X.X.X.X" port port="5060" protocol="udp" accept'
