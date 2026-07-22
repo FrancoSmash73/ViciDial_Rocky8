@@ -246,6 +246,17 @@ nft list ruleset | grep "saddr !="   # Must return nothing
 # 2026-07-21: also removed the public-zone `ssh` service entry (port 22) — sshd only
 # ever listens on 1951 (see SSH port note above), so the port-22 allow was dead weight
 # with nothing behind it. 1951/tcp stays explicitly allowed via the ports= list.
+#
+# 2026-07-21: full rule re-audit turned up two more dead/overbroad entries, both removed:
+# - `1984/tcp` was world-open with nothing listening behind it (no systemd socket, no
+#   cockpit/ViciDial config referencing it — just IANA's registered "bb" name, unused here).
+# - A standalone unscoped `187.191.49.142 accept` rich rule granted that IP EVERY port/
+#   protocol on the box, well beyond what it actually uses. That IP is legitimate (it's
+#   in ViciDial's own ViciWhite list, 2026-07-13) and still gets full SIP/RTP access via
+#   the dynamiclist ipset like any other whitelisted agent, plus whatever's globally open
+#   (http/https/cockpit/1951/446/81) — the blanket rule added nothing beyond that except
+#   exposure (e.g. AMI 5038/tcp) that was never observed in use. If real AMI/other access
+#   from that IP turns out to be needed, add a scoped rich rule for just that port.
 
 # Add a new carrier IP
 firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="X.X.X.X" port port="5060" protocol="udp" accept'
