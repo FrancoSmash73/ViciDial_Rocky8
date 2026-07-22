@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Asterisk version:** `18.21.0-vici`
 - **OS:** Rocky Linux 10
-- **SSH port:** `1951` (not 22)
+- **SSH port:** `1951` (not 22) — sshd only binds 1951; firewalld's `ssh` service (port 22) was dead weight and removed 2026-07-21
 - **ViciDial config:** `/etc/astguiclient.conf`
 - **DB credentials:** user `cron`, pass in `/etc/astguiclient.conf` (`VARDB_pass`)
 - **Cluster build repo:** `https://github.com/FrancoSmash73/vicidial-rocky10` (local: `/usr/src/vicidial-rocky10/`)
@@ -242,6 +242,10 @@ nft list ruleset | grep "saddr !="   # Must return nothing
 # Same audit also found and removed a stray, unexplained 5060/udp allow for a
 # DigitalOcean IP (167.99.243.205) that matched no configured carrier — if a similar
 # unrecognized rule turns up again, treat it as suspicious and verify before keeping it.
+#
+# 2026-07-21: also removed the public-zone `ssh` service entry (port 22) — sshd only
+# ever listens on 1951 (see SSH port note above), so the port-22 allow was dead weight
+# with nothing behind it. 1951/tcp stays explicitly allowed via the ports= list.
 
 # Add a new carrier IP
 firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="X.X.X.X" port port="5060" protocol="udp" accept'
