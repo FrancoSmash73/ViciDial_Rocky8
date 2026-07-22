@@ -102,11 +102,12 @@ the plain SSH form).
 (stale 172.x cluster-IP table, Asterisk service-management description, stale `vicidial-skin`
 row) — these are single-source-of-truth docs, already pushed, nothing to "port." But:
 
-- [ ] Verify CVS's own Asterisk service-management pattern. Oliver's docs now correctly say
-      Asterisk runs in a detached `screen` launched by `rc.local`, NOT `asterisk.service`
-      (confirmed live). **Don't assume CVS is the same** — check `systemctl status asterisk`
-      and `screen -ls` there directly; if CVS genuinely uses systemd, that's a real difference
-      worth noting explicitly rather than copying Oliver's finding over.
+- [x] Verify CVS's own Asterisk service-management pattern. **Done 2026-07-22**: CVS genuinely
+      runs Asterisk under `asterisk.service` (systemd) — a real, confirmed divergence from
+      Oliver's detached-screen/rc.local pattern, not a doc error. Oliver's own classification
+      was re-verified live the same day and stands unchanged. See CVS_OLIVER_DIVERGENCE.md
+      section 4 for the full writeup and the operational implication (what "restart Asterisk"
+      means differs per box).
 
 ---
 

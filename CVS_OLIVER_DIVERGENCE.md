@@ -140,6 +140,44 @@ patch-apply success isn't proof the code compiles or behaves correctly,
 though — this needs an actual compile + functional smoke test on a disposable
 VM before it's a real option, not just evidence it's worth attempting.
 
+### 4. Asterisk service-management mechanism — CONFIRMED DIVERGENT, 2026-07-22
+
+| | CVS (campaignvoiceservices) | Oliver (dialengine.ddns.net) |
+|---|---|---|
+| Mechanism | `asterisk.service` (systemd) | Detached `screen -S asterisk`, launched by `rc.local` → `start_asterisk_boot.pl` |
+
+This came out of `TODO_CVS_PARITY.md` item 6, which flagged the open question
+correctly: "don't assume CVS is the same [as Oliver] — check `systemctl status
+asterisk` and `screen -ls` there directly." A CVS-side session did that check
+and reported CVS genuinely runs Asterisk under `asterisk.service`.
+
+**Re-verified live on Oliver 2026-07-22** (this session, not just trusting the
+existing doc) before writing this section, prompted by the CVS finding raising
+the question of whether Oliver's own classification might have been wrong:
+- `systemctl status asterisk` → `Loaded: masked`, `Active: inactive (dead)`
+- `systemctl status vicidial-asterisk` → unit not found
+- `screen -ls` → `1923.asterisk (Attached)`, part of a `rc-local.service` →
+  `SCREEN -S astshell...` → `screen -L -S asterisk` → `asterisk -vvv...gcT`
+  process tree, PID 1933, running continuously since Jul 14 (9+ days uptime)
+- `ss -ulnp`/`ss -tlnp` show no chan_sip-era `5060/udp`; PJSIP is on
+  `transport-udp 0.0.0.0:5061` and `transport-wss 0.0.0.0:5060`, consistent
+  with the chan_sip removal already recorded in section 1 above
+
+Oliver's classification stands as originally documented — this session found
+no error to correct there. **CVS's `asterisk.service` finding was not
+independently re-verified from Oliver** (no access to CVS in this session);
+it's recorded here as reported by the CVS-side session. If that needs
+independent confirmation later, run the same four checks
+(`systemctl status asterisk`, `systemctl status vicidial-asterisk`,
+`screen -ls`, `ss -ulnp | grep 5060`) directly on CVS.
+
+**Why this matters going forward**: any future runbook step that assumes "restart
+Asterisk" means the same thing on both boxes is wrong. On CVS that's
+`systemctl restart asterisk`; on Oliver it's re-running (or reattaching and
+restarting inside) the `screen`/`rc.local` flow — `systemctl restart asterisk`
+on Oliver would do nothing to the real running process. `TODO_CVS_PARITY.md`
+item 6 is closed with this section as the answer.
+
 ---
 
 ## Open decisions — not made here, need your call
