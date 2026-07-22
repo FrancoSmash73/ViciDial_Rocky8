@@ -19,7 +19,7 @@ of docs.
 | [`vicidial-installer`](https://github.com/FrancoSmash73/vicidial-installer) | Private | Separate installer lineage: Asterisk 20 + chan_sip. Originally the designated "future builds" target. Had a leaked-then-rotated DB credential in git history, since made private. |
 | [`Hulk-`](https://github.com/FrancoSmash73/Hulk-) | Public | The actual HulkPhone WebRTC softphone source — the agent-facing browser dialer embedded in ViciDial's UI. Consumed the same way everywhere as of 2026-07-20: a **live git clone** left in place at `/var/www/html/hulkphone` on CVS, Oliver, and (now) `vicidial-rocky10`'s Part 4 installer — no more vendored static snapshot anywhere. `configs/hulkphone/` (the old vendored copy, which had already gone ~2 months stale once) was deleted from `vicidial-rocky10` the same day. See `CVS_OLIVER_DIVERGENCE.md`. |
 | [`vicidial-skin`](https://github.com/FrancoSmash73/vicidial-skin) | Private | Dark-theme skin/theming for ViciDial's admin and agent panels on CVS. Currently on Step 9 (Polish & Refinement) per its own project notes. |
-| `AI-AMD-project` | *(visibility TBD)* | Self-hosted ML classifier replacing ViciDial's native heuristic AMD, across both dialers (CVS + Oliver). 4-class output (HUMAN/MACHINE/**CALLGUARD**/UNCERTAIN) — CALLGUARD is the standout addition, handling call-screening services (iOS Call Screening, Google Call Screen, carrier filters) that stock binary AMD mishandles. Audio never leaves the private network. AudioSocket/EAGI integration with Asterisk; TensorFlow/Keras classifier (YAMNet transfer learning) exported to TFLite/ONNX for CPU inference; deployed on a parallel test extension so it never touches the live 8369/8373/8375 AMD lines. Phased rollout (Phase 0 baseline measurement → Phase 4 full deployment across both dialers); brief dated 2026-07-10, v2. |
+| [`AI-AMD-project`](https://github.com/FrancoSmash73/AI-AMD-project) | Private | Self-hosted ML classifier replacing ViciDial's native heuristic AMD. 4-class output (HUMAN/MACHINE/**CALLGUARD**/UNCERTAIN) — CALLGUARD is the standout addition, handling call-screening services (iOS Call Screening, Google Call Screen, carrier filters) that stock binary AMD mishandles. Audio never leaves the private network. **Phase 1 (shadow mode) live on Oliver since 2026-07-16**, extension 8378 in parallel with native AMD — nothing acts on the AI verdict yet, comparison is a SQL join. Model at **v3** (2026-07-18, 558 labeled clips; YAMNet features → per-crop-tier logistic heads, TFLite inference). 2026-07-21: got a real README (was a two-line placeholder) plus two reliability fixes — see Open threads. |
 | [`vicidial-dynportal`](https://github.com/FrancoSmash73/vicidial-dynportal) | Public | Self-service web portal (`valid8.php`) letting remote agents whitelist their own dynamic IP without admin intervention. Agents log in with ViciDial credentials; their public IP gets written to the `ViciWhite` list in `vicidial_ip_list_entries`, which VB-firewall's cron picks up into firewalld's `dynamiclist` ipset within ~60s. Reads DB credentials straight from `/etc/astguiclient.conf` — no separate config needed. Runs on its own SSL-only port (446, with an HTTP→HTTPS redirect listener on 81). |
 
 ---
@@ -85,8 +85,24 @@ of docs.
 - `vicidial-installer`'s leaked-credential git history — repo is private now
   and the credential's dead, so this is optional cleanup (`git filter-repo`/
   BFG), not urgent.
-- `AI-AMD-project` is currently at Phase 0/1 per its own brief (baseline
-  measurement / shadow mode) — worth a status check next time it comes up.
+- ~~`AI-AMD-project` status check~~ — **done, 2026-07-21**: confirmed live
+  in Phase 1 shadow mode on Oliver (model v3, since 2026-07-16), not just
+  "per its own brief." Same pass found and fixed two reliability bugs:
+  `shadow_watcher.py` was letting one transient per-file `wave.Error`
+  (a MixMonitor header-finalization race, ~1-in-3 first-attempt rate)
+  stall the entire poll batch instead of just that file — now caught
+  per-file with a bounded 15-attempt retry, verified live (8 failed
+  attempts then success, no stall to other files). Separately, the
+  `aiamd-spy` ChanSpy fork was found leaking Local-channel pairs for
+  **97–123 hours** (root cause of why its `E` exit-on-hangup option
+  wasn't firing was not identified) — was driving Asterisk to 130% CPU
+  with zero real calls in progress; bounded with a hard
+  `TIMEOUT(absolute)=120` in the dialplan as a belt-and-suspenders fix,
+  not a root-cause one. Also wrote a real README (was a two-line
+  placeholder) and documented both fixes in `docs/phase1-shadow.md`.
+  Commits `c29a057`, `b413986`, `f09522b`, `d51a0e2` on `AI-AMD-project`.
+  Phase 2 exit criterion (act on verdicts) is still open: audited
+  false-human rate at/under native AMD's 18.7%, sustained ≥1 week.
 - ~~Apache `ProxyTimeout` 60s default silently killing large list-loader
   uploads~~ — **fixed, 2026-07-21**: `admin_listloader_fifth_gen.php` was
   504ing on large uploads (confirmed on a 250k-row list on Oliver) even
