@@ -4,12 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## Cluster Architecture
+## Server: Oliver — single combined box, not a cluster
 
-| Role | IP | Notes |
+Despite the section name below ("Cluster build repo"), this is **one server doing everything**
+(Asterisk + MariaDB + Apache), not a split Asterisk/DB-Web pair. Verified 2026-07-21: no `172.x`
+interface exists on this box, and `mariadbd`/`httpd`/Asterisk all run locally on the same host.
+The stale claim this replaced (`Asterisk 172.235.34.224` / `DB-Web 172.239.67.94`) appears to have
+been aspirational/copy-pasted and never matched reality here — if a real split deployment exists
+elsewhere, it isn't this server.
+
+| Role | Value | Notes |
 |------|----|-------|
-| **Asterisk (this server)** | `172.235.34.224` | Handles all SIP/RTP, AGI scripts, audio playback |
-| **DB / Web (ViciDial Admin)** | `172.239.67.94` | MariaDB + Apache + ViciDial PHP frontend |
+| **Public IP** | `104.207.140.83` | Asterisk + MariaDB + Apache/PHP all on this one host |
+| **DDNS hostnames** | `dialengine.ddns.net`, `callbakz.ddns.net` | Both resolve here — two aliases for the same box, not two servers |
 
 - **Asterisk version:** `18.21.0-vici`
 - **OS:** Rocky Linux 10
@@ -58,7 +65,7 @@ asterisk -rx "dialplan show <context>"
 tail -f /var/log/asterisk/full
 ```
 
-### ViciDial DB queries (run on DB server 172.239.67.94)
+### ViciDial DB queries (MariaDB runs locally on this same box)
 ```bash
 mysql -u cron -p'<pass>' asterisk -e "<query>"
 
@@ -192,16 +199,24 @@ truncated, they think their sibling processes are dead and either exit or spawn 
 Fix: swap to `ps -f --no-headers -A` (or `ps -o "pid,args" --no-headers -A`). Part 3 script patches all
 four automatically.
 
-### Asterisk systemd service — runs as root, never run a second console instance
-Asterisk runs as a **systemd service** configured as `User=root` (see `/etc/systemd/system/asterisk.service`).
-ViciDial's AGI scripts, log files, and directories all expect root ownership. Running as `asterisk` user
-causes permission denied errors in action_process logs, CDR logs, and ViciDial astguiclient logs.
-Never start a second instance with `asterisk -vvvgcT`. If two instances run, both bind to UDP 5060 and
-SIP 200 OK responses go to the wrong process — all carriers show UNREACHABLE.
+### Asterisk runs in a detached `screen`, launched by rc.local — NOT `asterisk.service`
+Verified on Oliver 2026-07-21: `asterisk.service` is **masked** and `vicidial-asterisk.service`
+reports inactive — **by design**, not drift. The real, only running instance is inside a detached
+`screen -L -S asterisk` session (PID chain: `rc-local.service` → `SCREEN -S astshell...` → `sh` →
+`screen -L -S asterisk` → `asterisk -vvvvvvvvvvvvvvvvvvvvvgcT`), running as root as ViciDial's AGI
+scripts, log files, and directories all expect (running as the `asterisk` user causes permission
+denied errors in action_process logs, CDR logs, and ViciDial astguiclient logs).
+
+**`systemctl status asterisk` will always show masked/inactive here even when Asterisk is healthy
+— that is expected, not a fault.** Don't "fix" it by unmasking and starting `asterisk.service`;
+that would spawn a **second** instance alongside the screen-managed one. Two instances both bind
+UDP 5060 and SIP 200 OK responses go to the wrong process — all carriers show UNREACHABLE.
+
 ```bash
-ss -ulnp | grep 5060    # Must show only 1 process (root)
-systemctl status asterisk   # Use this to check status
-asterisk -r             # Connect to running service for CLI
+ss -ulnp | grep 5060       # Must show only 1 process (root) — the real liveness check
+screen -ls                 # Should show "asterisk" (and the astshell wrapper) attached/detached
+screen -r asterisk         # Attach to the live console (Ctrl-A D to detach without killing it)
+asterisk -r                # Connect a second read-only CLI session, safe alongside the console
 ```
 
 ### Module Path
@@ -287,6 +302,6 @@ action = nftables-allports[name=asterisk]
 
 ```sql
 -- After inserting carrier, trigger config rebuild:
-UPDATE servers SET rebuild_conf_files='Y' WHERE server_ip='172.235.34.224';
+UPDATE servers SET rebuild_conf_files='Y' WHERE server_ip='104.207.140.83';
 -- Then run: perl /usr/share/astguiclient/ADMIN_keepalive_ALL.pl --force
 ```
