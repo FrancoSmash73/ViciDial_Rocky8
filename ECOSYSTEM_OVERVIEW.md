@@ -69,6 +69,12 @@ of docs.
 
 ## Open threads across the whole ecosystem
 
+- **CVS parity check** — a full day of Oliver-focused work (Apache timeout fix, firewall audit,
+  malware-scanner hardening, AI-AMD reliability fixes, doc corrections) needs verifying against
+  CVS, which wasn't touched or checked this session. Full checklist, with notes on what's
+  directly portable vs. what needs CVS-specific investigation first:
+  [`TODO_CVS_PARITY.md`](TODO_CVS_PARITY.md).
+
 - Oliver → Asterisk 20 migration decision (see `CVS_OLIVER_DIVERGENCE.md`) —
   deliberately deferred, needs its own planned session.
 - ~~`vicidial-rocky10` Part 4 HulkPhone deployment mechanism~~ — **done,
