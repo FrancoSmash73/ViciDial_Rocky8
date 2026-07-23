@@ -92,9 +92,12 @@ Found a live-format (already-dead) GitHub personal access token embedded in plai
 `/root/vicidial-skin/.git/config`'s remote URL on Oliver. Stripped it (`git remote set-url` to
 the plain SSH form).
 
-- [ ] Check any CVS-side git clones (`vicidial-skin` or others) for the same
+- [x] Check any CVS-side git clones (`vicidial-skin` or others) for the same
       `https://user:ghp_...@github.com/...` pattern in `.git/config` — `grep -r "ghp_" ~/*/.git/config`
       or similar across whatever repos are checked out there
+      **Done 2026-07-22**: system-wide scan of every `.git/config` on CVS for credentials
+      embedded in remote URLs (`https://user:TOKEN@github.com/...`, all GitHub token prefixes)
+      — clean, nothing found.
 
 ## 6. Documentation corrections (already fixed centrally, verify CVS-specific bits)
 
