@@ -94,15 +94,30 @@ a `--fix`-mode bug that would've deleted `/usr/bin/VB-firewall`, three real syst
 for every Perl/AGI script, plus false positives in the MySQL bind-address check, a cron
 fd-redirect pattern, and an `rpm -Vf` config-file check.
 
-- [ ] Pull the updated script onto CVS (from the repo, or copy from Oliver's
+- [x] Pull the updated script onto CVS (from the repo, or copy from Oliver's
       `/usr/src/check_miner_malware_V6_Final.sh`)
-- [ ] Run it in **scan mode only** first (no `--fix`/`--harden`) — review output before
+      **Done 2026-07-22**: patched V6 present and committed (`6152d8a`).
+- [x] Run it in **scan mode only** first (no `--fix`/`--harden`) — review output before
       considering remediation
-- [ ] If `--fix` is ever run there, the whitelists in the script (`VICIDIAL_FILE_WHITELIST`,
+      **Done 2026-07-22**: scan-only run, no `--fix`. No real compromise. Three flagged items
+      were false positives explained and dismissed: a self-inflicted hit on the scan's own `tee`
+      process, `/dev/shm/lldpad.state` (legitimate LLDP daemon state file), and kernel taint
+      (fully explained by `dahdi` loading as an unsigned out-of-tree module — dmesg-confirmed,
+      normal for any Asterisk/DAHDI box).
+- [x] If `--fix` is ever run there, the whitelists in the script (`VICIDIAL_FILE_WHITELIST`,
       `LOCAL_SERVICE_WHITELIST`, `DB_USER_WHITELIST`) are tuned to Oliver's specific service
       names (`aiamd-shadow-watcher.service` etc.) and DB accounts — verify they match what's
       actually legitimate on CVS before trusting `--fix` there; don't assume Oliver's whitelist
       is complete for a different box
+      **Done 2026-07-22**: the one real gap found was `DB_USER_WHITELIST` flagging `custom`@`%`
+      as an unrecognized remote DB account. Checked its actual grants — `SELECT, INSERT, UPDATE,
+      DELETE, CREATE, ALTER, LOCK TABLES` scoped only to `asterisk.*`, no `FILE`/`SUPER`/
+      `GRANT OPTION`/`SHUTDOWN` — confirmed by the user as a legitimate app-integration account.
+      Added to `DB_USER_WHITELIST` (committed as part of `6152d8a`); re-ran the scan to confirm
+      it no longer flags. `LOCAL_SERVICE_WHITELIST`'s `aiamd-shadow-watcher.service` /
+      `aiamd-audiosocket.service` entries also checked against CVS directly — both units
+      genuinely exist and are enabled here (see item 4 below), so no change needed there.
+      `--fix`/`--harden` still not run — scan mode only, remediation not needed.
 
 ## 4. AI-AMD-project reliability fixes
 
