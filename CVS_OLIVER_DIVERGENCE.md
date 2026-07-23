@@ -183,13 +183,30 @@ this section left open):
   screen-wrapped child
 
 Both sides of this divergence are now independently confirmed from both
-boxes, not one-sided. **Bonus finding while re-checking:** the two boxes
-also differ in which PJSIP transport sits on `5060/udp` — CVS runs
-`transport-udp` on `0.0.0.0:5060` (chan_sip-era port, now carrying PJSIP
-UDP), while Oliver runs `transport-wss` on `5060` and `transport-udp` on
-`5061` (see section above). Not itself a problem — both are internally
-consistent — but another reason "just copy the port number" reasoning
-between these two boxes doesn't hold.
+boxes, not one-sided. This closes the "not independently re-verified" gap
+this section originally flagged. One nuance worth keeping in mind: CVS's
+unit is LSB-init-wrapped (`generated` from `/etc/rc.d/init.d/asterisk`), not
+a hand-written native systemd unit — `systemctl start/stop/status` all work
+normally, but journald log capture, `Restart=` policy behavior, and
+dependency ordering may not behave identically to a real native unit. Worth
+checking the actual generated unit before relying on any of those specifics.
+
+**Bonus divergence caught during the CVS cross-check — port assignment**:
+
+| | CVS | Oliver |
+|---|---|---|
+| PJSIP `transport-udp` | `5060` | `5061` |
+| PJSIP `transport-wss` | `8089` | `5060` |
+
+Same functional setup (PJSIP-only, WSS for WebRTC), different port numbers
+on both transports, not just one. CVS's `transport-udp` on `5060` is the
+old chan_sip-era port now carrying PJSIP UDP, and its `transport-wss` on
+`8089` is the conventional ViciDial/Asterisk `http.conf` default. Oliver's
+`transport-wss` on `5060` is the deliberate `websocket_enabled=false` /
+chan_sip-freed-port workaround already documented in CLAUDE.md, freeing
+`5061` for its `transport-udp` — expected, not new drift. Flagging so no
+firewall rule, runbook, or troubleshooting habit gets written assuming one
+box's port numbers apply to the other.
 
 **Why this matters going forward**: any future runbook step that assumes "restart
 Asterisk" means the same thing on both boxes is wrong. On CVS that's
@@ -228,6 +245,32 @@ survived to reach anyway. The offline fallback now deploys a shell that's
 honest about not working (both `<script>`/`<link>` tags 404) instead of a
 vendored copy that silently rots.
 
+**3. Migrate Oliver from screen/rc.local to a systemd-managed Asterisk (CVS's pattern)?**
+Opinion, not yet a decision: systemd is the better-suited pattern for a
+production dialer, and it's not close. The screen/rc.local setup gives zero
+crash supervision — if Asterisk dies mid-shift, nothing restarts it; recovery
+depends on a human noticing dead calls, not on a `Restart=on-failure` policy.
+It also has no standard tooling hooks (monitoring agents, `systemctl status`,
+journald log correlation all expect a real unit), and it's the direct cause
+of the double-instance/port-5060 foot-gun already documented in CLAUDE.md —
+a single canonical start/stop path via systemd removes that whole class of
+mistake.
+
+The one legitimate reason Oliver ended up on screen/rc.local is the
+root-permission requirement (ViciDial's AGI/CDR/log files expect Asterisk
+running as root) — but that doesn't actually force the screen-over-systemd
+tradeoff; a unit file can set `User=root` just as easily and keep every
+current permission assumption intact.
+
+The real cost is migration risk on a live production box: it changes *how
+the process starts*, not what Asterisk itself does, so it's much lower-risk
+than the Asterisk-20 version decision above — but it still needs a real
+maintenance window, a tested unit file (`ExecStart` matching the current
+`start_asterisk_boot.pl` invocation, `User=root`, a sane `Restart=` policy),
+and a rollback path, not an ad-hoc swap mid-session. Treat as its own small,
+deliberately scheduled item — don't bundle it into the Asterisk-20 migration
+decision even though both touch the same box's Asterisk startup.
+
 ---
 
 ## Recommended next steps
@@ -241,3 +284,9 @@ vendored copy that silently rots.
    scheduled project — not a follow-on to tonight's session. If picked up,
    start with the patched-20 build test (3 vici patches, disposable VM)
    rather than assuming `441cf78`'s unpatched approach is the only option.
+5. ~~Independently confirm CVS's `asterisk.service` finding~~ — done
+   2026-07-22, see section 4. Also treat the Oliver
+   screen/rc.local → systemd migration (open decision 3) as its own
+   separate, deliberately scheduled item, same caution as the Asterisk-20
+   migration — don't bundle the two even though both touch Asterisk startup
+   on the same box.
