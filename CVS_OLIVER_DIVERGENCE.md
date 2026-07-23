@@ -164,12 +164,32 @@ the question of whether Oliver's own classification might have been wrong:
   with the chan_sip removal already recorded in section 1 above
 
 Oliver's classification stands as originally documented — this session found
-no error to correct there. **CVS's `asterisk.service` finding was not
-independently re-verified from Oliver** (no access to CVS in this session);
-it's recorded here as reported by the CVS-side session. If that needs
-independent confirmation later, run the same four checks
-(`systemctl status asterisk`, `systemctl status vicidial-asterisk`,
-`screen -ls`, `ss -ulnp | grep 5060`) directly on CVS.
+no error to correct there.
+
+**CVS side independently re-verified live, 2026-07-22** (same four checks,
+run directly on CVS in a separate session with box access, closing the loop
+this section left open):
+- `systemctl status asterisk` → `Loaded: loaded (/etc/rc.d/init.d/asterisk;
+  generated)`, `Active: active (running)` since 2026-07-07, PID 3116, under
+  real systemd/LSB-init supervision (not a wrapper around a screen)
+- `systemctl status vicidial-asterisk` → `Unit vicidial-asterisk.service
+  could not be found`
+- `screen -ls` → 10 sessions, all `AST*` astguiclient Perl process names
+  (`ASTupdate`, `ASTsend`, `ASTlisten`, `ASTVDauto`, `ASTVDremote`, etc.) —
+  **none named `asterisk`**, confirming the Asterisk core itself is not
+  running inside any of them on CVS, unlike Oliver's `1923.asterisk` screen
+- `ss -ulnp | grep 5060` → `0.0.0.0:5060` bound directly to
+  `("asterisk",pid=3116)` — the core process itself owns the port, not a
+  screen-wrapped child
+
+Both sides of this divergence are now independently confirmed from both
+boxes, not one-sided. **Bonus finding while re-checking:** the two boxes
+also differ in which PJSIP transport sits on `5060/udp` — CVS runs
+`transport-udp` on `0.0.0.0:5060` (chan_sip-era port, now carrying PJSIP
+UDP), while Oliver runs `transport-wss` on `5060` and `transport-udp` on
+`5061` (see section above). Not itself a problem — both are internally
+consistent — but another reason "just copy the port number" reasoning
+between these two boxes doesn't hold.
 
 **Why this matters going forward**: any future runbook step that assumes "restart
 Asterisk" means the same thing on both boxes is wrong. On CVS that's
