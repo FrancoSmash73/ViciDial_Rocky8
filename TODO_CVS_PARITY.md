@@ -45,12 +45,45 @@ SIP/RTP access it actually uses.
 port?) and against the DB (`vicidial_server_carriers`, PJSIP config) for whether each rule maps
 to something real. Don't trust "it's documented as intentional" — verify against current state.
 
-- [ ] Run the same audit on CVS: `firewall-cmd --list-all` + `--permanent --list-all`, diff for
+- [x] Run the same audit on CVS: `firewall-cmd --list-all` + `--permanent --list-all`, diff for
       drift, cross-check every world-open port/service against `ss -tlnp`/`ss -ulnp`
-- [ ] Cross-check every accept rule's source IP against `vicidial_server_carriers` / PJSIP
+      **Done 2026-07-22**: full audit across both zones (`public` on `enp2s0`, `internal` on
+      `wg0`/`10.0.0.0/24`). None of Oliver's specific dead rules exist here (no `66.209.76.0/24`,
+      no dead `1984/tcp`, DID4Sale is genuinely active) — but CVS has its own, different real
+      findings, below. Key infra fact that explains a lot of the apparent weirdness: CVS sits
+      behind a VPS gateway (`149.28.69.52`, reached via `wg0`) that does the real internet-facing
+      DNAT + `nft` SIP allowlist; the VPS SNATs everything to `10.0.0.x` before it reaches CVS, so
+      CVS's own firewall can't filter SIP by real source IP — that's delegated upstream.
+- [x] Cross-check every accept rule's source IP against `vicidial_server_carriers` / PJSIP
       identify blocks — anything not traceable to a real, currently-used carrier is suspect
-- [ ] Check for any blanket unscoped `accept` rules (vs. properly service-scoped ones) that
+      **Done 2026-07-22**: found one genuinely orphaned rule — `162.120.186.186` (`5060/udp`
+      accept, `public` zone). Zero matches in `vicidial_server_carriers`, PJSIP identify sections,
+      the ViciWhite-driven `dynamiclist` ipset, or ever in `/var/log/asterisk/full`. This is CVS's
+      real equivalent of Oliver's unexplained-DigitalOcean-IP finding. **Removed** (runtime +
+      permanent). Also confirmed as legitimate and left alone: the `dynamiclist` ipset (5 IPs) —
+      not stale, auto-synced every minute by `/usr/bin/VB-firewall --white --dynamic` from
+      ViciDial's own `vicidial_ip_list_entries` table (`ip_list_id='ViciWhite'`), confirmed 1:1
+      match against the DB; `viciportal-ssl` (`446/tcp`, unscoped) is a real public-facing
+      customer/agent portal vhost (`/var/www/html/dynportal`), intentionally unscoped.
+- [x] Check for any blanket unscoped `accept` rules (vs. properly service-scoped ones) that
       could be narrowed
+      **Done 2026-07-22**: found and **removed** six dead rich rules in the `public` zone, all
+      scoped to `source address="10.0.0.0/24"` (`5060/tcp`, `5060/udp`, `8088/tcp`, `8089/tcp`,
+      `1951/tcp`, `http` service). These could never actually fire — firewalld classifies any
+      packet whose source matches `10.0.0.0/24` into the `internal` zone first (source-based zone
+      binding beats interface-based binding, and `internal` explicitly binds that CIDR), and the
+      `internal` zone already grants the same access natively via its own `ports=`/`services=`
+      list. Not a security hole, just dead weight — likely left over from before the `internal`
+      zone was split out properly. Removed from both runtime and permanent; verified `asterisk`/
+      `httpd`/`sshd` all stayed active and the current SSH session was unaffected. **Not touched**
+      (low priority, informational only): the `ssh` *service* (port 22) rich rule scoped to
+      `187.189.29.194` is inert since nothing listens on 22 (sshd only binds 1951, and that same
+      IP already has its own separate 1951 rule) — harmless leftover from before the SSH port
+      move, safe to clean up later but not urgent.
+- [x] Confirm the four abuse-IP `drop` rules (`192.168.1.83`, `91.224.92.34`, `15.204.149.75`,
+      `198.143.191.202`) are permanently blocked, not just runtime
+      **Done 2026-07-22**: all four were already present as `drop` in both the runtime **and**
+      `--permanent` rule sets — no drift, nothing to fix here, just confirmed.
 
 ## 3. `check_miner_malware_V6_Final.sh`
 
