@@ -202,16 +202,19 @@ row) — these are single-source-of-truth docs, already pushed, nothing to "port
       couldn't check": `ECOSYSTEM_OVERVIEW.md`'s `vicidial-skin` row explicitly flagged production
       (CVS) as possibly missing the July-16 structural fixes (script-tab CSS injection, double
       header bars in console iframes, admin status-color flatten) and said this "can't [be]
-      verif[ied] from Oliver." **Checked directly on CVS, 2026-07-22** — inconclusive, not a clean
-      yes/no. The live checkout is genuinely at the latest commit (`06d4b52`, 0 behind
-      `origin/main`) and `install.php --status` shows everything patched/current, but that status
-      check doesn't cover the structural fixes specifically (they touch core ViciDial files
-      directly, outside what the installer tracks), and the checkout's own bundled `CLAUDE.md`
-      still narrates production as missing them — text that may just be stale. Full writeup and
-      evidence in `ECOSYSTEM_OVERVIEW.md`'s `vicidial-skin` row. **Not resolved, and not acted on
-      here** — this is real agent-facing production UI, so redeploying isn't something to do
-      without you weighing in, even though 0 agents were logged in at check time (a safe window
-      if you want to force a clean re-deploy to settle it).
+      verif[ied] from Oliver." **Resolved 2026-07-22**: ran `php install.php` for real (0 agents
+      logged in) — 0 files changed, confirming the checkout was already fully deployed
+      (`06d4b52`, 0 behind `origin/main`). Since `install.php --status`'s "patched/current" only
+      checks for the `[SKIN-LOADER]` marker and asset md5s — not the structural fixes themselves,
+      which touch core ViciDial files directly — went further and confirmed each one by reading
+      the actual live code/DB instead of trusting the checkout's own stale `CLAUDE.md`, which
+      still incorrectly narrates production as missing all three: script-tab injection fixed
+      (`skin_loader.php` skip-list excludes `vdc_script_display` by name), double header bars
+      fixed (`Sec-Fetch-Dest: iframe` detection + `vb-iframe-page` class, live in
+      `skin_loader.php`), admin status-color flatten fixed (live DB's `vicidial_screen_colors`
+      "Packers - Gold on Green" row has `alt_row1/2/3_background = 1B3A2E/24503E/142B22`, matching
+      the patch doc's addendum). All three confirmed live on CVS — full evidence in
+      `ECOSYSTEM_OVERVIEW.md`'s `vicidial-skin` row.
 
 ## 7. Hardcoded `confcron` AMI secret (found/fixed 2026-07-22, Oliver only)
 
