@@ -198,6 +198,20 @@ row) — these are single-source-of-truth docs, already pushed, nothing to "port
       was re-verified live the same day and stands unchanged. See CVS_OLIVER_DIVERGENCE.md
       section 4 for the full writeup and the operational implication (what "restart Asterisk"
       means differs per box).
+- [x] Bonus, not on the original checklist but squarely "verify a CVS-specific bit that Oliver
+      couldn't check": `ECOSYSTEM_OVERVIEW.md`'s `vicidial-skin` row explicitly flagged production
+      (CVS) as possibly missing the July-16 structural fixes (script-tab CSS injection, double
+      header bars in console iframes, admin status-color flatten) and said this "can't [be]
+      verif[ied] from Oliver." **Checked directly on CVS, 2026-07-22** — inconclusive, not a clean
+      yes/no. The live checkout is genuinely at the latest commit (`06d4b52`, 0 behind
+      `origin/main`) and `install.php --status` shows everything patched/current, but that status
+      check doesn't cover the structural fixes specifically (they touch core ViciDial files
+      directly, outside what the installer tracks), and the checkout's own bundled `CLAUDE.md`
+      still narrates production as missing them — text that may just be stale. Full writeup and
+      evidence in `ECOSYSTEM_OVERVIEW.md`'s `vicidial-skin` row. **Not resolved, and not acted on
+      here** — this is real agent-facing production UI, so redeploying isn't something to do
+      without you weighing in, even though 0 agents were logged in at check time (a safe window
+      if you want to force a clean re-deploy to settle it).
 
 ## 7. Hardcoded `confcron` AMI secret (found/fixed 2026-07-22, Oliver only)
 
