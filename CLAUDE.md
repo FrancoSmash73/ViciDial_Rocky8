@@ -23,6 +23,16 @@ elsewhere, it isn't this server.
 - **SSH port:** `1951` (not 22) — sshd only binds 1951; firewalld's `ssh` service (port 22) was dead weight and removed 2026-07-21
 - **ViciDial config:** `/etc/astguiclient.conf`
 - **DB credentials:** user `cron`, pass in `/etc/astguiclient.conf` (`VARDB_pass`)
+- **AMI credentials:** `/etc/asterisk/manager.conf` has six stock ViciDial accounts (`cron`,
+  `updatecron`, `listencron`, `sendcron`, `sipcron`, `confcron`) that all share **one** secret,
+  driven by a single DB column (`servers.ASTmgrSECRET`, `varchar(20)`) — not six independent
+  passwords. Rotated 2026-07-22 (was the stock default `1234`); to rotate again, update that DB
+  column *and* all six `secret =` lines in `manager.conf` together, `asterisk -rx "manager
+  reload"`, then bounce the persistent AMI daemons (`AST_manager_send.pl`,
+  `AST_manager_listen_AMI2.pl`, `AST_conf_update_screen.pl`) via `systemctl start
+  vicidial-keepalive.service` so they pick up the new value — they cache it in-process and won't
+  reconnect with it otherwise. Not internet-exposed: firewalld's `asterisk` service covers
+  5060/5061/4569/8088/8089, not AMI's 5038, and the zone default-denies.
 - **Cluster build repo:** `https://github.com/FrancoSmash73/vicidial-rocky10` (local: `/usr/src/vicidial-rocky10/`)
   - `vicidial_rocky10_part1_install.sh` — system deps, Perl modules, DBD::mysql 4.052, PHP UTC timezone
   - `vicidial_rocky10_part2_install.sh` — Asterisk build, ViciDial SVN, DB schema, AGI.pm patch, sip.conf websocket fix, VARactive_keepalives flags
