@@ -25,11 +25,24 @@ helps if CVS gets rebuilt from `vicidial-rocky10`; if CVS runs `vicidial-install
 built by hand, the same 60s-default gap may exist there and needs the same `zz-vicidial-
 proxytimeout.conf` file added directly, independent of which installer "owns" it.
 
-- [ ] Confirm CVS's `mod_proxy_fcgi`/Apache `Timeout` setting (`httpd -t -D DUMP_RUN_CFG` or
+- [x] Confirm CVS's `mod_proxy_fcgi`/Apache `Timeout` setting (`httpd -t -D DUMP_RUN_CFG` or
       grep conf.d for an existing override)
-- [ ] If no override exists, add `zz-vicidial-proxytimeout.conf` there too
-- [ ] Confirm which installer lineage CVS actually uses; port the Part 1 installer change there
+      **Done 2026-07-22**: confirmed the same gap — no override anywhere in `conf.d`, Apache
+      defaulting to 60s against PHP's `max_execution_time=600` (`/etc/php.d/vicidial.ini`).
+      `proxy_fcgi_module` is loaded and php-fpm is the active handler (`httpd -M`), so this is
+      exactly Oliver's scenario, not a false alarm.
+- [x] If no override exists, add `zz-vicidial-proxytimeout.conf` there too
+      **Done 2026-07-22**: added `/etc/httpd/conf.d/zz-vicidial-proxytimeout.conf` (`Timeout 3600`
+      / `ProxyTimeout 3600`), `httpd -t` passed, `systemctl reload httpd` applied it live.
+- [x] Confirm which installer lineage CVS actually uses; port the Part 1 installer change there
       if it's `vicidial-installer`, not just `vicidial-rocky10`
+      **Done 2026-07-22**: confirmed CVS was built from the separate `vicidial-installer` repo
+      (`/root/vicidial-installer` — `ViciDial_Install_Part1/2/3/4.sh`, not this repo's
+      `vicidial_rocky10_part*` scripts), matching `ECOSYSTEM_OVERVIEW.md`'s note. Ported the same
+      fix into `ViciDial_Install_Part3.sh`'s Apache/PHP section (Section 8, right after the
+      `vicidial.ini` heredoc, before `vicidial.conf` is written) — committed there as `298c9ad`
+      and pushed, independent of this repo's own `vicidial_rocky10_part1_install.sh` fix
+      (`d66fe5e`), since CVS would only ever pick that one up on a rebuild from this lineage.
 
 ## 2. Firewall audit
 
