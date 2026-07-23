@@ -234,6 +234,10 @@ persistent AMI daemons (`AST_manager_send.pl`, `AST_manager_listen_AMI2.pl`,
 Verified clean logons in `/var/log/asterisk/messages` for all six accounts post-rotation, zero
 auth failures since, no dropped calls (1 active call stayed up throughout).
 
+**Oliver re-checked for the same `wg0`-facing exposure CVS had, 2026-07-22**: after finding that
+CVS's `internal` zone explicitly opened `5038/tcp` to the WireGuard tunnel (below), went back and
+checked Oliver's own tunnel-facing zone for the same pattern. Confirmed and fixed there too.
+
 **Installer fixed too** (commit `db62674`, pushed): `vicidial_rocky10_part1_install.sh` now
 generates `CONFCRON_SECRET` alongside the DB passwords and stores it in the credentials file;
 `vicidial_rocky10_part2_install.sh` loads it (self-healing fallback for older Part 1 runs)
