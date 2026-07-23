@@ -112,6 +112,42 @@ row) — these are single-source-of-truth docs, already pushed, nothing to "port
       section 4 for the full writeup and the operational implication (what "restart Asterisk"
       means differs per box).
 
+## 7. Hardcoded `confcron` AMI secret (found/fixed 2026-07-22, Oliver only)
+
+Oliver's `manager.conf` had **six** AMI accounts (`cron`, `updatecron`, `listencron`, `sendcron`,
+`sipcron`, `confcron`) all sharing one secret — `1234` — driven by a single DB column
+(`servers.ASTmgrSECRET`, `varchar(20)`). `confcron` specifically was hardcoded to `1234` in
+`vicidial_rocky10_part2_install.sh`'s manager.conf heredoc; the rest inherited the same value
+via that shared DB column, which is stock ViciDial's own default, not unique to this installer.
+Not internet-reachable (firewalld's `asterisk` service covers 5060/5061/4569/8088/8089, not
+5038, and the zone default-denies) — but a full-privilege (`system`,`originate`) AMI account
+sitting on a well-known default is a real gap if that firewall rule ever drifts.
+
+**Fixed on Oliver, 2026-07-22**: rotated `servers.ASTmgrSECRET` + all six `manager.conf` `secret =`
+lines to a fresh 20-char value, reloaded Asterisk's manager config, and restarted the three
+persistent AMI daemons (`AST_manager_send.pl`, `AST_manager_listen_AMI2.pl`,
+`AST_conf_update_screen.pl`) via `vicidial-keepalive.service` so they picked up the new secret.
+Verified clean logons in `/var/log/asterisk/messages` for all six accounts post-rotation, zero
+auth failures since, no dropped calls (1 active call stayed up throughout).
+
+**Installer fixed too** (commit `db62674`, pushed): `vicidial_rocky10_part1_install.sh` now
+generates `CONFCRON_SECRET` alongside the DB passwords and stores it in the credentials file;
+`vicidial_rocky10_part2_install.sh` loads it (self-healing fallback for older Part 1 runs)
+instead of hardcoding `1234`.
+
+- [ ] Check CVS's `/etc/asterisk/manager.conf` for the same pattern (all six stock ViciDial AMI
+      account names sharing one weak/default secret) — `grep -A1 '^\[.*cron\]' manager.conf`
+- [ ] If found, rotate the same way: update `servers.ASTmgrSECRET` in the DB, update all matching
+      `secret =` lines in `manager.conf` to match, `asterisk -rx "manager reload"`, then bounce
+      any persistent AMI-consumer daemons so they pick up the new value (don't just restart
+      `asterisk.service` on CVS — remember CVS's Asterisk is systemd-managed per item 6, so the
+      restart mechanics differ from Oliver's screen/keepalive pattern)
+- [ ] Confirm CVS's firewall doesn't expose port 5038 externally either (same check as item 2:
+      cross-reference `firewall-cmd --list-all` against `ss -tlnp`)
+- [ ] If CVS ever gets rebuilt from `vicidial-rocky10`, the installer fix is already in `main` —
+      nothing to manually port, same caveat as item 1 about confirming which installer lineage
+      CVS actually uses
+
 ---
 
 *Written 2026-07-21 after an Oliver-focused session (firewall audit, `check_miner_malware`
