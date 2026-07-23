@@ -126,13 +126,31 @@ Two bugs fixed in `shadow_watcher.py` and `extensions-ai-amd-spy.conf` (repo:
 `wave.Error` race that could stall the whole classification batch, and a ChanSpy leak that left
 zombie channels alive for up to 123 hours, driving Asterisk to 130% CPU with zero real calls.
 
-**Not urgent for CVS specifically** — per the project's own `docs/phase1-shadow.md`, Phase 1
-shadow mode is only deployed on Oliver so far; "same stack on dialer 2 (CVS) when access lands"
-is still an open next-step in the project's own roadmap, not something already running there.
+**This premise was wrong — corrected 2026-07-22.** `docs/phase1-shadow.md`'s "same stack on dialer
+2 (CVS) when access lands" line is stale; `aiamd-shadow-watcher.service` and
+`aiamd-audiosocket.service` were already installed, enabled, and actively running on CVS (started
+2026-07-20, the day before this TODO was even written), on a local checkout (`/root/ai-amd`, its
+own git clone of the same repo) that was **4 commits behind `origin/main`** — missing exactly
+`c29a057` and `b413986`. Both bugs were live and unpatched on a running deployment, not
+theoretical.
 
-- [ ] No action needed until AI-AMD actually gets deployed on CVS — at that point, deploying
+- [x] No action needed until AI-AMD actually gets deployed on CVS — at that point, deploying
       from the current repo state means these two fixes are already included, nothing to
       manually port
+      **Done 2026-07-22, superseding the premise above**: it was already deployed and unpatched,
+      so this required real action, not a no-op. `git pull`'d `/root/ai-amd` to `d51a0e2`
+      (fast-forward, clean). The two fixes land in different places and needed separate steps:
+      `c29a057` (Python, `shadow_watcher.py`'s per-file exception handling) took effect on
+      `systemctl restart aiamd-shadow-watcher`; `b413986` (the `Set(TIMEOUT(absolute)=120)`
+      ChanSpy-leak bound, dialplan) required manually copying `/root/ai-amd/asterisk/
+      extensions-ai-amd-spy.conf` over `/etc/asterisk/extensions-ai-amd-spy.conf` (a plain file,
+      not a symlink — pulling the repo alone doesn't update what Asterisk actually reads) and
+      running `dialplan reload`. Verified live: `dialplan show aiamd-spy` shows the new
+      `Set(TIMEOUT(absolute)=120)` step, both services report `active (running)` on the patched
+      code, 0 active/zombie channels throughout the change, re-confirmed still clean 22+ hours
+      later. `docs/phase1-shadow.md`'s stale "dialer 2 when access lands" line was left as-is —
+      that's the AI-AMD-project repo's own doc, not this repo's, so not edited here; worth a
+      heads-up to whoever owns that project.
 
 ## 5. Leaked GitHub PAT
 
