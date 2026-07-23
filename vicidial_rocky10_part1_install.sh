@@ -340,6 +340,7 @@ section "CREDENTIAL GENERATION"
 MYSQL_ROOT_PASSWORD=$(generate_password)
 DB_PASSWORD=$(generate_password)
 CUSTOM_DB_PASSWORD=$(generate_password)
+CONFCRON_SECRET=$(generate_password)
 ASTERISK_SERVER_IP=${ASTERISK_SERVER_IP:-}
 
 # Secure credential storage
@@ -356,6 +357,8 @@ DB_PASSWORD=$DB_PASSWORD
 DB_NAME=asterisk
 CUSTOM_DB_USER=custom
 CUSTOM_DB_PASSWORD=$CUSTOM_DB_PASSWORD
+# manager.conf [confcron] AMI user (Part 2)
+CONFCRON_SECRET=$CONFCRON_SECRET
 # Server Info
 SERVER_IP=$SERVER_IP
 INSTALL_MODE=$INSTALL_MODE
