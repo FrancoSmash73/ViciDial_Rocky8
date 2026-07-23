@@ -174,9 +174,17 @@ the plain SSH form).
 - [x] Check any CVS-side git clones (`vicidial-skin` or others) for the same
       `https://user:ghp_...@github.com/...` pattern in `.git/config` — `grep -r "ghp_" ~/*/.git/config`
       or similar across whatever repos are checked out there
-      **Done 2026-07-22**: system-wide scan of every `.git/config` on CVS for credentials
-      embedded in remote URLs (`https://user:TOKEN@github.com/...`, all GitHub token prefixes)
-      — clean, nothing found.
+      **Done 2026-07-22, re-verified same day** after several more repos got checked out over the
+      course of this session (`/root/ai-amd`, `/opt/vicidial-dynportal`, `/tmp/vicidial-skin-check`,
+      `/tmp/hulk-check`, `/var/www/html/campaignvoiceservices`, etc. — 11 `.git` dirs total by the
+      re-check). Every `.git/config` on the box scanned for all GitHub token-prefix formats
+      (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`/`github_pat_`) and generic embedded `https://user:pass@`
+      remote URLs — clean both times, nothing found. Also checked the credential-store path this
+      pattern usually hides in instead of `.git/config`: `/opt/vicidial-dynportal` has
+      `credential.helper = store`, which does keep a live PAT, but in `/root/.git-credentials`
+      (`600 root:root`, not world/group-readable, not duplicated anywhere, not embedded in any
+      tracked repo file) — that's the credential helper working correctly, not a leak. No `.netrc`
+      anywhere on the box either.
 
 ## 6. Documentation corrections (already fixed centrally, verify CVS-specific bits)
 
