@@ -121,3 +121,20 @@ of docs.
   (`Timeout`/`ProxyTimeout 3600`) to `vicidial_rocky10_part1_install.sh`'s
   Apache step (commit `d66fe5e`, pushed as `1b22f35`); applied live on
   Oliver the same day.
+- ~~`confcron`/AMI shared secret hardcoded to the stock `1234` default~~ —
+  **fixed on Oliver, 2026-07-22**: `manager.conf`'s six stock ViciDial AMI
+  accounts (`cron`, `updatecron`, `listencron`, `sendcron`, `sipcron`,
+  `confcron`) all shared one secret via a single DB column
+  (`servers.ASTmgrSECRET`) that was still the stock `1234` default — not
+  internet-exposed (firewalld's `asterisk` service doesn't cover AMI's
+  5038, zone default-denies), but a full-privilege (`system`,`originate`)
+  account on a well-known default is a real gap if that rule ever drifts.
+  Rotated the DB column and all six `manager.conf` entries, reloaded, and
+  bounced the AMI daemons (`AST_manager_send.pl`,
+  `AST_manager_listen_AMI2.pl`, `AST_conf_update_screen.pl`) via
+  `vicidial-keepalive.service` with zero call disruption (verified clean
+  logons, no auth failures after, 1 active call stayed up throughout).
+  `vicidial_rocky10_part2_install.sh` now generates this secret instead of
+  hardcoding it (commit `db62674`, pushed). CVS-side check (does the same
+  weak default exist there?) still open — tracked in
+  [`TODO_CVS_PARITY.md`](TODO_CVS_PARITY.md) item 7.
