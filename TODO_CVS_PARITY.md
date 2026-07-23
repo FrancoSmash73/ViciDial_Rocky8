@@ -135,15 +135,35 @@ generates `CONFCRON_SECRET` alongside the DB passwords and stores it in the cred
 `vicidial_rocky10_part2_install.sh` loads it (self-healing fallback for older Part 1 runs)
 instead of hardcoding `1234`.
 
-- [ ] Check CVS's `/etc/asterisk/manager.conf` for the same pattern (all six stock ViciDial AMI
+- [x] Check CVS's `/etc/asterisk/manager.conf` for the same pattern (all six stock ViciDial AMI
       account names sharing one weak/default secret) — `grep -A1 '^\[.*cron\]' manager.conf`
-- [ ] If found, rotate the same way: update `servers.ASTmgrSECRET` in the DB, update all matching
+      **Done 2026-07-22**: confirmed — same six accounts (`cron`, `updatecron`, `listencron`,
+      `sendcron`, `sipcron`, `confcron`), all `secret = 1234`, matching `servers.ASTmgrSECRET`.
+      Worse than Oliver on one axis: AMI was bound `0.0.0.0:5038`, not localhost-only.
+- [x] If found, rotate the same way: update `servers.ASTmgrSECRET` in the DB, update all matching
       `secret =` lines in `manager.conf` to match, `asterisk -rx "manager reload"`, then bounce
       any persistent AMI-consumer daemons so they pick up the new value (don't just restart
       `asterisk.service` on CVS — remember CVS's Asterisk is systemd-managed per item 6, so the
       restart mechanics differ from Oliver's screen/keepalive pattern)
-- [ ] Confirm CVS's firewall doesn't expose port 5038 externally either (same check as item 2:
+      **Done 2026-07-22**: rotated `servers.ASTmgrSECRET` + all six `manager.conf` `secret =`
+      lines to a fresh 20-char value (`/root/.vicidial_ami_secret`, root-only), `manager reload`d.
+      CVS's `astguiclient` daemons (unlike `asterisk.service` itself) turned out to run under the
+      **same screen/keepalive pattern as Oliver** — `ADMIN_keepalive_ALL.pl` via cron, not systemd
+      — so the six AMI-holding daemons (`AST_update_AMI2.pl`, `AST_manager_send.pl`,
+      `AST_manager_listen_AMI2.pl`, `AST_VDauto_dial.pl`, `AST_conf_update_screen.pl`,
+      `AST_conf_update_3way.pl`) were cleanly `screen -X quit`'d and auto-relaunched by the
+      keepalive cron within ~30s. Verified: 3 persistent sessions re-authenticated on the new
+      secret (`manager show connected`), all 6 worker processes stable, zero auth failures in
+      `/var/log/asterisk/full` since.
+- [x] Confirm CVS's firewall doesn't expose port 5038 externally either (same check as item 2:
       cross-reference `firewall-cmd --list-all` against `ss -tlnp`)
+      **Done 2026-07-22**: not internet-reachable — VPS-side `nft`/`firewall-cmd --list-forward-ports`
+      only DNAT `5060/8088/8089/10000-20000` to `10.0.0.2`, no 5038. But CVS's own `internal` zone
+      (bound to `wg0`, source `10.0.0.0/24`) **did** explicitly allow `5038/tcp` — added the same
+      week as the Mailcow relay setup, unrelated to it (Mailcow only needs 25/587/993/143, already
+      present separately) and not needed by anything ViciDial-side either (all live AMI connections
+      are on `127.0.0.1`). Removed via `firewall-cmd --zone=internal --remove-port=5038/tcp`
+      (runtime + `--permanent`), confirmed AMI still functions (loopback unaffected).
 - [ ] If CVS ever gets rebuilt from `vicidial-rocky10`, the installer fix is already in `main` —
       nothing to manually port, same caveat as item 1 about confirming which installer lineage
       CVS actually uses
