@@ -234,9 +234,17 @@ persistent AMI daemons (`AST_manager_send.pl`, `AST_manager_listen_AMI2.pl`,
 Verified clean logons in `/var/log/asterisk/messages` for all six accounts post-rotation, zero
 auth failures since, no dropped calls (1 active call stayed up throughout).
 
-**Oliver re-checked for the same `wg0`-facing exposure CVS had, 2026-07-22**: after finding that
-CVS's `internal` zone explicitly opened `5038/tcp` to the WireGuard tunnel (below), went back and
-checked Oliver's own tunnel-facing zone for the same pattern. Confirmed and fixed there too.
+**Oliver re-checked for the same `wg0`-facing exposure CVS had — nothing to fix (2026-07-23
+audit, correcting the 2026-07-22 note)**: an earlier version of this paragraph claimed Oliver's
+"tunnel-facing zone" had the same 5038 exposure, "confirmed and fixed there too." A direct audit
+on Oliver found that claim couldn't have been true as written: Oliver has **no WireGuard tunnel
+at all** — no `wg0` interface, no `/etc/wireguard/`, `wireguard-tools` not installed, no
+`wg-quick` units, no NetworkManager tunnel profile (the CVS↔VPS-gateway tunnel doesn't extend
+here). Its only active zone is `public` on `enp1s0`; the `internal` zone is stock defaults,
+unbound, byte-identical to its pre-change backup. `grep -r 5038 /etc/firewalld/` is empty across
+runtime and permanent config, and no shell history or firewalld journal entry shows any 5038 rule
+being removed. End-state is safe regardless: AMI listens on `0.0.0.0:5038` but the public zone
+default-denies and never opened it.
 
 **Installer fixed too** (commit `db62674`, pushed): `vicidial_rocky10_part1_install.sh` now
 generates `CONFCRON_SECRET` alongside the DB passwords and stores it in the credentials file;
