@@ -357,6 +357,8 @@ since trunk isn't patched automatically the way Part 2's Perl/AGI patches are). 
   - The `call_log_display.php`/`live_exten_check.php`/`park_calls_display.php`/`conf_exten_check.php`
     debug branches are gated behind `system_settings.allow_web_debug` (confirmed `0` on this server
     as of the fix date — latent, not live, unless that setting is ever turned on for troubleshooting).
-  - **Not fully swept:** `vdc_db_query.php` (19k+ lines) has the identical filter pattern on several
-    more fields (`$closer_choice`, `$campaign`, `$extension`, `$user_abb`, `$favorites_list`,
-    `$url_ids`, and more) that were spot-checked but not remediated — flagged, not fixed.
+  - `vdc_db_query.php` (19k+ lines, fixed 2026-09-03 in a follow-up pass) — the same weak filter
+    was applied to **66 fields** throughout this file (`$closer_choice`, `$campaign`, `$extension`,
+    `$user_abb`, `$favorites_list`, `$url_ids`, the full lead-data set (`$first_name`/`$last_name`/
+    `$address1-3`/`$email`/`$comments`/etc.), `$inbound_email_groups[$i]`/`$inbound_chat_groups[$i]`,
+    and more) — all brought up to the same stronger filter, in both the live file and trunk.
