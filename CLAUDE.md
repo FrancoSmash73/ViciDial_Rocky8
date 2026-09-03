@@ -362,3 +362,23 @@ since trunk isn't patched automatically the way Part 2's Perl/AGI patches are). 
     `$user_abb`, `$favorites_list`, `$url_ids`, the full lead-data set (`$first_name`/`$last_name`/
     `$address1-3`/`$email`/`$comments`/etc.), `$inbound_email_groups[$i]`/`$inbound_chat_groups[$i]`,
     and more) — all brought up to the same stronger filter, in both the live file and trunk.
+  - **Third pass (2026-09-03), grep'd the exact weak-filter fingerprint across every `agc/` file**
+    (not just the 39 touching `$_GET`/`$_POST`) to close out the sweep:
+    - `phone_only.php` — `$browser` (`getenv("HTTP_USER_AGENT")`) echoed raw into an HTML comment.
+      **This is the most exploitable finding of the whole sweep** — reachable with a crafted
+      `User-Agent` header alone, no login and no `allow_web_debug` needed, unlike everything else
+      found in this sweep.
+    - `api.php` — `$stage` echoed raw in two plain-text status lines (needs valid login).
+    - `vdc_form_display.php` — `$DB`/`$source_field_value`/`$user_custom_one..five`, all named in
+      the `$only_field_query` string that gets echoed into a JS variable assignment; a literal
+      `<`/`>` there also matters because of the browser's `</script>`-anywhere-terminates-the-block
+      HTML-parsing quirk, not just quote-breakout.
+    - Confirmed safe and left alone: `vdc_script_display.php` (identical field list to the two
+      script-display files above, but `urlencode()`d before use — different from its siblings),
+      `vdc_email_display.php` (superseded by a stricter later whitelist), `functions.php` and the
+      `dispo_add_FPG.php`/`dispo_move_list.php`/`dispo_send_email.php` trio (values only reach
+      `mysql_error_logging()`, never the HTTP response), `alt_display.php` (hardcoded override).
+    - **Explicitly out of scope, not examined:** `chat_db_query.php`'s `$chat_message`/
+      `$manager_message` carry the same weak filter but go into the DB and get rendered back out
+      elsewhere later — that's stored XSS, a different bug class than the reflected one this sweep
+      targeted, and wasn't traced.
