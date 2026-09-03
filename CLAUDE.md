@@ -315,3 +315,22 @@ action = nftables-allports[name=asterisk]
 UPDATE servers SET rebuild_conf_files='Y' WHERE server_ip='104.207.140.83';
 -- Then run: perl /usr/share/astguiclient/ADMIN_keepalive_ALL.pl --force
 ```
+
+---
+
+## agc web files — known applied fixes (not tracked in this git repo)
+
+`/var/www/html/agc/` and `/usr/src/astguiclient/trunk/www/agc/` are ViciDial's stock PHP
+frontend files, deployed by `install.pl` — they live outside this repo's git tree, so fixes to
+them are easy to lose track of (or accidentally revert on a future `install.pl` re-run/upgrade,
+since trunk isn't patched automatically the way Part 2's Perl/AGI patches are). Record fixes here.
+
+- **`agc/sse.php` — unvalidated `refresh_interval` echoed into SSE stream (fixed 2026-09-03):**
+  Stock ViciDial echoes `$_GET['refresh_interval']` straight into the `retry:` field of the
+  Server-Sent-Events response with no validation (`$refresh_interval=(array_key_exists(...) ?
+  $_GET['refresh_interval'] : "-1");`). Fixed in both the live file and
+  `trunk/www/agc/sse.php` (so a re-run of `install.pl` won't silently reintroduce it) using
+  `filter_input(INPUT_GET, 'refresh_interval', FILTER_VALIDATE_INT, ['min_range'=>100,
+  'max_range'=>3600000, 'default'=>1000])` — rejects non-integer input and range-bounds it,
+  rather than a bare `(int)` cast which would still let out-of-range/garbage-coerced-to-0
+  values through.
