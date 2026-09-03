@@ -334,3 +334,29 @@ since trunk isn't patched automatically the way Part 2's Perl/AGI patches are). 
   'max_range'=>3600000, 'default'=>1000])` — rejects non-integer input and range-bounds it,
   rather than a bare `(int)` cast which would still let out-of-range/garbage-coerced-to-0
   values through.
+
+- **Reflected XSS in 7 files — request values echoed raw into HTML with only a partial
+  quote-strip filter (fixed 2026-09-03):** A full manual sweep of all 39 `agc/` files that touch
+  `$_GET`/`$_POST`/`$_REQUEST` (triggered by the `sse.php` fix above) found the same root defect
+  repeated across the codebase: some fields are sanitized with `preg_replace("/\'|\"|\\\\|;/","",...)`
+  — which strips quotes/backslash/semicolon but **not** `<`/`>` — then get echoed raw into the page.
+  Since PHP's default `Content-Type` is `text/html`, a bare `<script>` payload needs no
+  quote-breakout at all. ViciDial's own code already has the correct idiom elsewhere
+  (`vdc_form_display.php` and `vicidial.php` use `/\<|\>|\'|\"|\\\\|;| /`) — the fix everywhere
+  below just brings the weaker filters up to that existing stronger one, applied to both the live
+  file and its `trunk/www/agc/` counterpart:
+  - `manager_send.php` — **confirmed live regardless of any setting**: `$ACTION` (and sibling
+    `$exten`/`$extenName`/`$parkedby`/`$stage`/`$CalLCID`/`$call_server_ip`) reach an
+    `if ($format=='debug')` HTML-comment echo with only a valid login + active session required —
+    no admin toggle gates it.
+  - `call_log_display.php`, `live_exten_check.php`, `park_calls_display.php` — `$exten` had **zero**
+    sanitization at all before the same kind of debug-comment echo.
+  - `conf_exten_check.php` — `$exten`/`$clicks`/`$visibility`/`$xferchannel` likewise unsanitized.
+  - `vdc_script_dispo_example.php`, `vdc_script_notes.php` — a ~20-field lead-data dump
+    (`$title`/`$first_name`/`$last_name`/`$address1-3`/`$comments`/etc.) with the same weak filter.
+  - The `call_log_display.php`/`live_exten_check.php`/`park_calls_display.php`/`conf_exten_check.php`
+    debug branches are gated behind `system_settings.allow_web_debug` (confirmed `0` on this server
+    as of the fix date — latent, not live, unless that setting is ever turned on for troubleshooting).
+  - **Not fully swept:** `vdc_db_query.php` (19k+ lines) has the identical filter pattern on several
+    more fields (`$closer_choice`, `$campaign`, `$extension`, `$user_abb`, `$favorites_list`,
+    `$url_ids`, and more) that were spot-checked but not remediated — flagged, not fixed.
