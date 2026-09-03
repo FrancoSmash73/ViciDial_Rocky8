@@ -395,7 +395,6 @@ log "Loading database credentials from Part 1..."
 MYSQL_ROOT_PASSWORD=$(grep "^MYSQL_ROOT_PASSWORD=" "$CREDS_FILE" | cut -d'=' -f2-)
 DB_PASSWORD=$(grep "^DB_PASSWORD=" "$CREDS_FILE" | cut -d'=' -f2-)
 CUSTOM_DB_PASSWORD=$(grep "^CUSTOM_DB_PASSWORD=" "$CREDS_FILE" | cut -d'=' -f2-)
-CONFCRON_SECRET=$(grep "^CONFCRON_SECRET=" "$CREDS_FILE" | cut -d'=' -f2-)
 
 if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ -z "$DB_PASSWORD" ]; then
     error "Required passwords not found in $CREDS_FILE"
@@ -403,11 +402,6 @@ fi
 if [ -z "$CUSTOM_DB_PASSWORD" ]; then
     warning "CUSTOM_DB_PASSWORD not set - using DB_PASSWORD as fallback"
     CUSTOM_DB_PASSWORD="$DB_PASSWORD"
-fi
-if [ -z "$CONFCRON_SECRET" ]; then
-    warning "CONFCRON_SECRET not set (older Part 1 run) - generating one now"
-    CONFCRON_SECRET=$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-24)
-    echo "CONFCRON_SECRET=$CONFCRON_SECRET" >> "$CREDS_FILE"
 fi
 # FIX #1: Set standard variable names used throughout script
 DB_USER="cron"
@@ -1989,17 +1983,25 @@ fi
 cp /etc/asterisk/manager.conf /etc/asterisk/manager.conf.backup
 
 if ! grep -q '^\[confcron\]' /etc/asterisk/manager.conf; then
+# install.pl seeds the [cron]/[updatecron]/[listencron]/[sendcron]/[sipcron]
+# stock accounts from the single servers.ASTmgrSECRET DB column, so they all
+# share one secret. confcron must reuse that SAME value (not a value of its
+# own) or it will never authenticate - see CLAUDE.md's AMI credentials note.
+AMI_SHARED_SECRET=$(awk '/^\[cron\]/{f=1;next} /^\[/{f=0} f && /^secret[[:space:]]*=/{print $NF; exit}' /etc/asterisk/manager.conf)
+if [ -z "$AMI_SHARED_SECRET" ]; then
+error "Could not read the existing [cron] AMI secret from manager.conf - was install.pl (Step 7) completed?"
+fi
 cat >> /etc/asterisk/manager.conf << MGREOF
 
 ; ViciDial ConfBridge AMI user
 [confcron]
-secret = ${CONFCRON_SECRET}
+secret = ${AMI_SHARED_SECRET}
 read = command,reporting
 write = command,reporting
 eventfilter=Event: Meetme
 eventfilter=Event: Confbridge
 MGREOF
-success "[confcron] AMI user added to manager.conf (generated secret, stored in $CREDS_FILE)"
+success "[confcron] AMI user added to manager.conf (shares secret with the other 5 stock AMI accounts)"
 else
 info "[confcron] already in manager.conf - skipping"
 fi
@@ -3585,7 +3587,7 @@ info "  ViciDial              : Installed (FrancoSmash73 method)"
 info "  DB Schema             : Pre-loaded before install.pl"
 info "  ConfBridge            : Configured (all 9 profiles)"
 info "  Extensions            : All prefixes 9600XXX-99600XXX"
-info "  manager.conf          : [confcron] AMI user added (secret in $CREDS_FILE)"
+info "  manager.conf          : [confcron] AMI user added (shares secret with other 5 stock AMI accounts)"
 info "  vicidial_confbridges  : 300 entries for $SERVER_IP"
 info "  mixing_interval       : 40ms (reduced CPU)"
 info "  [monitor] context     : Converted to ConfBridge"
