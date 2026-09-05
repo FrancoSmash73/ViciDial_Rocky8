@@ -318,12 +318,24 @@ UPDATE servers SET rebuild_conf_files='Y' WHERE server_ip='104.207.140.83';
 
 ---
 
-## agc web files — known applied fixes (not tracked in this git repo)
+## agc web files — known applied fixes
 
-`/var/www/html/agc/` and `/usr/src/astguiclient/trunk/www/agc/` are ViciDial's stock PHP
-frontend files, deployed by `install.pl` — they live outside this repo's git tree, so fixes to
-them are easy to lose track of (or accidentally revert on a future `install.pl` re-run/upgrade,
-since trunk isn't patched automatically the way Part 2's Perl/AGI patches are). Record fixes here.
+`/var/www/html/agc/` (served via Apache's `Alias /agc`) and `/usr/src/astguiclient/trunk/www/agc/`
+(the SVN checkout install.pl deploys it from) are ViciDial's stock PHP frontend files — the actual
+`.php` files live outside this repo's git tree (they're vendor/upstream code, not ours to version),
+so fixes to them are easy to lose track of, or get silently reverted the moment `install.pl` re-runs
+(manual re-run, or a ViciDial upgrade) and redeploys pristine copies from SVN into both locations.
+
+**As of 2026-09-05, the 13 files below are auto-patched by the installer itself**, not just
+hand-fixed on Oliver: their corrected contents live in this repo under `agc-security-patches/`,
+`vicidial_rocky10_part2_install.sh` stages them to `/usr/local/share/vicidial-rocky10/agc-security-patches/`
+during install, and the existing `vicidial-rocky10-repatch` script/`.path` unit (see the "Perl / AGI"
+patches below) now also whole-file-replaces any of these 13 that are missing the
+`ROCKY10-AGC-SECURITY-PATCH-v1` marker comment — in both `trunk/www/agc` and `/var/www/html/agc`
+(now both in the `.path` unit's watch list), preserving any `[SKIN-LOADER]` branding header already
+present on the destination. This means a *fresh* install on a new server gets all of these fixes
+automatically, with no manual re-patching step — verified by testing the exact extracted heredoc
+against a simulated unpatched + skin-loader-branded copy before this was committed.
 
 - **`agc/sse.php` — unvalidated `refresh_interval` echoed into SSE stream (fixed 2026-09-03):**
   Stock ViciDial echoes `$_GET['refresh_interval']` straight into the `retry:` field of the

@@ -3132,6 +3132,18 @@ systemctl enable --now vicidial-perl-sync.path && \
 # ===========================================================================
 section "ROCKY LINUX 10 AUTO-REPATCH SCRIPT + PATH UNIT"
 
+# Stage the known-good agc/ PHP files (XSS fixes - see CLAUDE.md "agc web files")
+# to a persistent system path so the repatch script below can restore them
+# without depending on this repo checkout still being present at $SCRIPT_DIR.
+log "Staging agc/ security-patched reference files..."
+mkdir -p /usr/local/share/vicidial-rocky10/agc-security-patches
+if [ -d "$SCRIPT_DIR/agc-security-patches" ]; then
+    cp "$SCRIPT_DIR"/agc-security-patches/*.php /usr/local/share/vicidial-rocky10/agc-security-patches/
+    success "Staged $(ls "$SCRIPT_DIR"/agc-security-patches/*.php | wc -l) agc/ reference files to /usr/local/share/vicidial-rocky10/agc-security-patches/"
+else
+    warning "$SCRIPT_DIR/agc-security-patches not found - agc/ XSS patches will not be applied by the repatch script"
+fi
+
 log "Installing /usr/local/sbin/vicidial-rocky10-repatch..."
 cat > /usr/local/sbin/vicidial-rocky10-repatch << 'REPATCH_SCRIPT_EOF'
 #!/usr/bin/env bash
@@ -3346,6 +3358,57 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 7. agc/ reflected + stored XSS patches (see CLAUDE.md "agc web files")
+#    install.pl deploys ViciDial's stock agc/ PHP files fresh from SVN into
+#    BOTH /usr/src/astguiclient/trunk/www/agc (the checkout) and
+#    /var/www/html/agc (the served copy served via Apache's "Alias /agc")
+#    on every fresh install AND every install.pl re-run/upgrade - silently
+#    reverting these fixes exactly like the patches above. Several stock
+#    ViciDial agc/ scripts sanitize request input with a filter that strips
+#    quotes/backslash/semicolon but not < / >, then echo the value raw into
+#    HTML (reflected XSS); chat_db_query.php stores chat messages with only
+#    SQL-escaping and echoes them back unescaped (stored XSS). Whole-file
+#    replacement (not a sed patch) - simpler and less error-prone than
+#    re-deriving ~150 individual regex edits across 13 files.
+# ---------------------------------------------------------------------------
+AGC_PATCH_SRC="/usr/local/share/vicidial-rocky10/agc-security-patches"
+AGC_MARKER="ROCKY10-AGC-SECURITY-PATCH-v1"
+if [ -d "$AGC_PATCH_SRC" ]; then
+    for AGC_TARGET_DIR in /usr/src/astguiclient/trunk/www/agc /var/www/html/agc; do
+        [ -d "$AGC_TARGET_DIR" ] || continue
+        for AGC_SRC_FILE in "$AGC_PATCH_SRC"/*.php; do
+            [ -f "$AGC_SRC_FILE" ] || continue
+            AGC_FNAME=$(basename "$AGC_SRC_FILE")
+            AGC_DEST="$AGC_TARGET_DIR/$AGC_FNAME"
+            [ -f "$AGC_DEST" ] || continue
+            if grep -qF "$AGC_MARKER" "$AGC_DEST" 2>/dev/null; then
+                continue
+            fi
+            # Preserve any [SKIN-LOADER] branding header already present on
+            # this server's copy - our reference files are the clean
+            # (unbranded) trunk versions.
+            AGC_SKIN_HEADER=""
+            if grep -q '\[SKIN-LOADER\]' "$AGC_DEST" 2>/dev/null; then
+                AGC_SKIN_HEADER=$(awk '/\[SKIN-LOADER\]/{f=1} f{print} /\[\/SKIN-LOADER\]/{if(f)exit}' "$AGC_DEST")
+            fi
+            if [ -n "$AGC_SKIN_HEADER" ]; then
+                { head -1 "$AGC_SRC_FILE"; echo "$AGC_SKIN_HEADER"; echo ""; tail -n +2 "$AGC_SRC_FILE"; } > "$AGC_DEST"
+            else
+                cp "$AGC_SRC_FILE" "$AGC_DEST"
+            fi
+            if command -v php &>/dev/null && ! php -l "$AGC_DEST" &>/dev/null; then
+                warning "$AGC_TARGET_DIR/$AGC_FNAME: patched copy failed php -l - check manually"
+            else
+                success "$AGC_TARGET_DIR/$AGC_FNAME: XSS patch applied"
+            fi
+            CHANGED=1
+        done
+    done
+else
+    warning "agc/ security patch source ($AGC_PATCH_SRC) not found - skipping agc/ XSS patches"
+fi
+
+# ---------------------------------------------------------------------------
 # Reload affected services if anything changed.
 # Uses targeted module reloads, NOT a full "core restart now" — this can run
 # unattended (via the .path unit) at any time of day and must not drop live
@@ -3391,12 +3454,14 @@ Documentation=https://github.com/FrancoSmash73/vicidial-rocky10
 [Path]
 # Fires whenever install.pl (manual re-run or ViciDial upgrade) rewrites any
 # of these — which is exactly when the DBI:MariaDB, ps-truncation, AGI.pm,
-# sip.conf, and pjsip.conf patches get silently reverted.
+# sip.conf, pjsip.conf, and agc/ XSS patches get silently reverted.
 PathChanged=/usr/share/astguiclient
 PathChanged=/var/lib/asterisk/agi-bin
 PathChanged=/etc/astguiclient.conf
 PathChanged=/etc/asterisk/sip.conf
 PathChanged=/etc/asterisk/pjsip.conf
+PathChanged=/usr/src/astguiclient/trunk/www/agc
+PathChanged=/var/www/html/agc
 
 [Install]
 WantedBy=multi-user.target
