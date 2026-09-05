@@ -509,6 +509,7 @@ User=root
 TimeoutStartSec=240
 Restart=no
 RemainAfterExit=no
+KillMode=process
 StandardOutput=journal
 StandardError=journal
 KEEPALIVE_SVC
