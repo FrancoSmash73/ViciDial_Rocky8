@@ -18,17 +18,20 @@ elsewhere, it isn't this server.
 | **Public IP** | `104.207.140.83` (stale — see note below) | Asterisk + MariaDB + Apache/PHP all on this one host |
 | **DDNS hostnames** | `dialengine.ddns.net`, `callbakz.ddns.net` | **Stale as of 2026-09-05 — see note below, neither resolves here anymore** |
 
-**2026-09-05 DNS drift, open/unresolved:** Oliver's actual public-facing IP (per `curl -4 ifconfig.me`
-from this box) is now `187.189.34.192`, not `104.207.140.83` — it sits behind CGNAT (private LAN IP
+**2026-09-05 DNS drift:** Oliver's actual public-facing IP (per `curl -4 ifconfig.me` from this box)
+is now `187.189.34.192`, not `104.207.140.83` — it sits behind CGNAT (private LAN IP
 `192.168.100.14`), so its ISP-facing address was never directly reachable inbound anyway; the DDNS
 hostnames were the real reachability path. Both have since moved off Oliver entirely:
 - `dialengine.ddns.net` → `45.63.17.128` (the new vicidial-rocky10 server being built — intentional,
   confirmed by the user).
-- `callbakz.ddns.net` → `149.28.64.211`, a Vultr-hosted nginx box the user does **not** recognize.
-  Not investigated further from here (no SSH exposure, and probing someone else's box further isn't
-  appropriate from this session) — needs checking from the DDNS provider account (update history/
-  credentials for that hostname) to determine whether this is a forgotten legitimate device or the
-  hostname/account was reused or hijacked. Treat as unverified, not benign, until checked.
+- `callbakz.ddns.net` → `149.28.64.211`, a Vultr-hosted nginx box. **Resolved, benign:** checked
+  against the No-IP account that manages this hostname — "Oliver" was a previous install that used
+  to sit behind this same DDNS name, and the same account later repointed it to this Vultr box. Same
+  account, not a hijack/reused name — just this hostname being reassigned to newer infrastructure
+  over time. No further action needed on this point.
+- Separately noticed: Oliver currently has a live `wg0` WireGuard interface (`10.0.0.2/24`), which
+  contradicts this file's own prior verified conclusion (commit `e93261f`) that no wg0 tunnel exists
+  here. Not re-investigated this session — flagging the discrepancy for a future check.
 - Separately noticed: Oliver currently has a live `wg0` WireGuard interface (`10.0.0.2/24`), which
   contradicts this file's own prior verified conclusion (commit `e93261f`) that no wg0 tunnel exists
   here. Not re-investigated this session — flagging the discrepancy for a future check.
