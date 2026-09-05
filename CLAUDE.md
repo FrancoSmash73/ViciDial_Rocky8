@@ -310,6 +310,24 @@ action = nftables-allports[name=asterisk]
          nftables-allports[name=asterisk-udp, protocol=udp]
 ```
 
+**fail2ban can crash entirely at boot if the `[asterisk]` jail's log files don't exist yet
+(fixed 2026-09-05):** Part 1 runs before Part 2 builds/starts Asterisk, so
+`/var/log/asterisk/messages` and `/var/log/asterisk/full` (the jail's `logpath` entries) don't
+exist at that point. fail2ban tolerates *some* missing `logpath` entries per jail, but if *all*
+of a jail's entries are missing it throws `Have not found any log file for asterisk jail` and
+`fail2ban-server` exits 255 — **taking down the entire service**, not just that jail, with no
+auto-restart (hit on the 45.63.17.128 install: down for 4h45m until manually restarted; same
+failure was hit earlier on Oliver during Part 1 and worked around ad hoc at the time). Part 1 now
+`touch`es both placeholder files before fail2ban ever starts. If this ever resurfaces (e.g. a
+manual fail2ban reinstall skips that step): `mkdir -p /var/log/asterisk && touch
+/var/log/asterisk/messages /var/log/asterisk/full && systemctl restart fail2ban`.
+
+**`rc-local.service` showing `inactive (dead)` is not a failure** — same class of misleading
+status as `asterisk.service` above. It's a oneshot unit with no `RemainAfterExit=yes`, so it
+correctly shows `inactive (dead)` once its `ExecStart` (which launches the `screen`-wrapped
+Asterisk console) has already run successfully. Don't diagnose it via `systemctl status`; use the
+same real liveness check as the Asterisk screen session: `ss -ulnp | grep 5060` and `screen -ls`.
+
 ---
 
 ## Empire IVR
