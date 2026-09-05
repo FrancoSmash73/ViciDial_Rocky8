@@ -517,13 +517,14 @@ cat > /etc/systemd/system/vicidial-keepalive.timer << 'KEEPALIVE_TMR'
 [Unit]
 Description=ViciDial Keepalive Timer (every 60 seconds)
 Documentation=man:systemd.timer(5)
-Requires=vicidial-keepalive.service
 
 [Timer]
 # Delay first run to allow system to settle after boot
 OnBootSec=2min
-# Subsequent runs: 60 seconds after the previous run ACTIVATED
-OnUnitActiveSec=1min
+# Subsequent runs: 60 seconds after the previous run FINISHED (not started) -
+# OnUnitActiveSec fires relative to when the service last activated, which
+# can double-fire/overlap if a run takes longer than the interval.
+OnUnitInactiveSec=1min
 # Tight accuracy - don't batch/delay
 AccuracySec=1s
 # Don't try to catch up missed runs after downtime
