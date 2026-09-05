@@ -956,6 +956,19 @@ EOF
     log "Installing fail2ban for security hardening..."
     dnf install -y fail2ban fail2ban-systemd
 
+    # --- TRAP -1: asterisk log files don't exist yet at Part 1 time ----------
+    # Part 1 runs BEFORE Part 2 builds/starts Asterisk, so neither
+    # /var/log/asterisk/messages nor /var/log/asterisk/full exists yet.
+    # fail2ban tolerates *some* missing logpath entries per jail, but if
+    # ALL of a jail's logpath entries are missing it throws "Have not found
+    # any log file for <jail>" and fail2ban-server exits 255 — taking down
+    # the WHOLE service, not just that jail, and it does not restart on its
+    # own (no Restart= in the unit). Pre-create empty placeholders so the
+    # jail always has a file to watch; Asterisk appends to these same paths
+    # once it starts, and the polling backend below picks that up normally.
+    mkdir -p /var/log/asterisk
+    touch /var/log/asterisk/messages /var/log/asterisk/full
+
     # --- TRAP 0: file extension decides who wins -----------------------------
     # fail2ban reads, in order (fail2ban/client/configreader.py):
     #     jail.conf -> sorted(jail.d/*.conf) -> jail.local -> sorted(jail.d/*.local)
