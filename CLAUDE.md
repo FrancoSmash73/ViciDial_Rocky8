@@ -378,7 +378,24 @@ since trunk isn't patched automatically the way Part 2's Perl/AGI patches are). 
       `vdc_email_display.php` (superseded by a stricter later whitelist), `functions.php` and the
       `dispo_add_FPG.php`/`dispo_move_list.php`/`dispo_send_email.php` trio (values only reach
       `mysql_error_logging()`, never the HTTP response), `alt_display.php` (hardcoded override).
-    - **Explicitly out of scope, not examined:** `chat_db_query.php`'s `$chat_message`/
-      `$manager_message` carry the same weak filter but go into the DB and get rendered back out
-      elsewhere later — that's stored XSS, a different bug class than the reflected one this sweep
-      targeted, and wasn't traced.
+    - **`chat_db_query.php` stored XSS in agent/manager chat — traced and fixed 2026-09-05:**
+      `$chat_message`/`$manager_message` are only `mysqli_real_escape_string()`'d (SQL-safe, not
+      HTML-safe) before being `INSERT`ed into `vicidial_manager_chat_log`/`vicidial_chat_log`, then
+      read back and echoed raw into an HTML `<font>` tag.
+      - **Live, no click/link/debug-toggle needed** — the manager-chat path (`DisplayMgrAgentChat`
+        action, `chat_db_query.php:365`) is consumed by `agc_agent_manager_chat_interface.php:412`
+        via `.innerHTML=` on an auto-refresh timer (`MgrAgentAutoRefresh()`). Any chat participant
+        posting `<img src=x onerror=...>` (or similar) executes it in every other participant's
+        session the moment their view refreshes — including managers/supervisors, making this a
+        viable agent-to-manager privilege-escalation path. This is the most severe finding across
+        the whole `agc/` review.
+      - The sibling agent↔customer chat path (`vicidial_chat_log`, `$row[2]`/`$row[5]` echoed at
+        `chat_db_query.php:1045`) has the identical bug, but `agc_agent_manager_chat_interface.php`
+        is the *only* file anywhere in this web root that calls `chat_db_query.php` at all — none of
+        that path's actions (`update_agent_chat_window`, `agent_send_message`, `join_chat`, etc.)
+        have a caller, so it isn't reachable through the current UI. Fixed anyway for defense in
+        depth.
+      - **Fix is `htmlspecialchars($var, ENT_QUOTES)` at the display point, not input filtering** —
+        unlike every other fix in this section, chat messages are free-form prose (need to support
+        quotes, punctuation, unicode), so blacklisting input characters would break legitimate
+        messages. Escaping at render time is the correct control here.
