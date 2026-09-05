@@ -1016,19 +1016,23 @@ findtime = 600
 
 [asterisk]
 enabled  = true
-backend  = polling            # MUST override backend=systemd; asterisk logs to a file
+# MUST override backend=systemd; asterisk logs to a file, not journald.
+backend  = polling
 maxretry = 5
 bantime  = 86400
 findtime = 600
 # Which file Asterisk writes depends on logger.conf. Some installs log security
 # events to `full`, others to `messages` -- listing both means the jail is
-# correct either way. fail2ban ignores logpath entries that do not exist.
+# correct either way. fail2ban ignores logpath entries that do not exist
+# (both are pre-touched above, before fail2ban ever starts, so this jail
+# always has at least one to watch — see TRAP -1 for why that matters).
 logpath  = /var/log/asterisk/messages
            /var/log/asterisk/full
 
 [apache-auth]
 enabled  = true
-backend  = polling            # MUST override backend=systemd; httpd logs to files
+# MUST override backend=systemd; httpd logs to files, not journald.
+backend  = polling
 maxretry = 5
 bantime  = 3600
 findtime = 600
