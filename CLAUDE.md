@@ -350,6 +350,52 @@ failure was hit earlier on Oliver during Part 1 and worked around ad hoc at the 
 manual fail2ban reinstall skips that step): `mkdir -p /var/log/asterisk && touch
 /var/log/asterisk/messages /var/log/asterisk/full && systemctl restart fail2ban`.
 
+**fail2ban's `[asterisk]` jail was silently blind without Asterisk's own security-event logging
+(fixed 2026-09-06):** the stock filter's `SecurityEvent=` regex (line 28 of
+`/etc/fail2ban/filter.d/asterisk.conf`) can only ever match if Asterisk actually emits
+`SecurityEvent` lines to a log file — and by default it doesn't. Fix, applied on Oliver and needed
+on every server:
+```bash
+grep -q "messages.*security" /etc/asterisk/logger.conf || \
+  sed -i 's/^\(messages => .*\)$/\1,security/' /etc/asterisk/logger.conf
+asterisk -rx "logger reload"
+asterisk -rx "logger show channels"   # confirm SECURITY appears on the messages line
+```
+
+**Separately, the stock `[asterisk]` filter has a real regex gap for chan_sip (fixed 2026-09-06):**
+its `failed to authenticate` patterns all expect `<HOST>` at the start of the message, so they
+never match chan_sip's actual `Failed to authenticate device <sip:ext@<HOST>:port>` format —
+letting that whole class of attacker through unbanned regardless of the security-logging fix above.
+Confirmed the gap and the fix with `fail2ban-regex` (a synthetic line matching this exact format
+went from `0 matched` to correctly extracting `<HOST>` from inside the `<sip:...@HOST:port>`
+construct) and independently confirmed the pre-existing blank line before the `# FreePBX` block
+doesn't break multi-line `failregex` parsing (checked directly via Python's `configparser`) before
+trusting the fix:
+```bash
+grep -q 'Failed to authenticate device <sip' /etc/fail2ban/filter.d/asterisk.conf || \
+  sed -i '/^# FreePBX/i\            ^Failed to authenticate device <sip:[^@]*@<HOST>(?::\\d+)?>.*$' \
+    /etc/fail2ban/filter.d/asterisk.conf
+fail2ban-client -t && systemctl restart fail2ban && fail2ban-client status asterisk
+```
+Note: on Oliver specifically, real inbound SIP scanning already arrives at Asterisk masqueraded as
+`10.0.0.1` (the WireGuard relay VPS's DNAT gateway — see the wg0/relay-VPS note above), which is why
+`10.0.0.0/24` is in fail2ban's `ignoreip` (decided 2026-08-25, unrelated to and not fixed by either
+change above) — this jail still can't ban those specific scanners until the VPS preserves real
+source IPs through the tunnel. Checked live on 2026-09-06: no *other*, non-masqueraded scanning
+currently hitting Oliver worth manually blocking (`grep "Failed to authenticate" /var/log/asterisk/full`,
+most recent unrelated match was 4+ days stale). Check each server's own current logs before assuming
+any specific IP is worth blocking — don't copy IPs reactive to one server onto another.
+
+**Cockpit — confirmed already closed on Oliver's firewall (2026-09-06):** `firewall-cmd --zone=public
+--query-service=cockpit` returns `no`. The systemd `cockpit.socket` is still `active`/`enabled`
+(bound locally, not firewall-exposed) — normal safe-by-default state, not something to additionally
+disable without a reason, since a local/SSH-tunneled admin-access use case would have a real
+downside if the service itself were stopped. The July 2026 firewall-audit note above lists cockpit
+as part of what was "globally open" back then — that was accurate as of that date; it isn't now,
+and nothing since has needed further action. If a fresh install or another server shows it actually
+`query-service=yes`, remove it the same low-risk way: `firewall-cmd --permanent --zone=public
+--remove-service=cockpit && firewall-cmd --reload`.
+
 **`rc-local.service` showing `inactive (dead)` is not a failure** — same class of misleading
 status as `asterisk.service` above. It's a oneshot unit with no `RemainAfterExit=yes`, so it
 correctly shows `inactive (dead)` once its `ExecStart` (which launches the `screen`-wrapped

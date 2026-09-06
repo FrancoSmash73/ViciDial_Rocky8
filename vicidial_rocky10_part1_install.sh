@@ -884,6 +884,18 @@ if ! is_complete "SYSTEM_CONFIG"; then
     firewall-cmd --permanent --add-port=5060/udp  # SIP
     firewall-cmd --permanent --add-port=10000-20000/udp  # RTP
     firewall-cmd --permanent --add-port=446/tcp  # ViciDial
+
+    # Rocky Linux base images can ship the `cockpit` service open in the
+    # public zone by default. This script never needs it (no web-console
+    # admin flow depends on it), so close it unconditionally — low-risk,
+    # firewall-only change (doesn't touch the cockpit.socket unit itself, so
+    # local/SSH-tunneled cockpit access still works if someone wants it,
+    # just not exposed to the internet by default). Confirmed 2026-09-06.
+    if firewall-cmd --zone=public --query-service=cockpit &>/dev/null; then
+        firewall-cmd --permanent --zone=public --remove-service=cockpit
+        success "firewalld: removed cockpit from public zone (was open by default)"
+    fi
+
     firewall-cmd --reload
     
     # System limits
@@ -1037,6 +1049,32 @@ maxretry = 5
 bantime  = 3600
 findtime = 600
 EOF
+
+    # FIX: the stock [asterisk] filter's "failed to authenticate" patterns all
+    # expect <HOST> at the START of the message. chan_sip's actual format —
+    # "Failed to authenticate device <sip:ext@<HOST>:port>" — has <HOST>
+    # embedded mid-string instead, so that whole class of attacker sails
+    # through unbanned. Confirmed missing and fixed 2026-09-06; verified with
+    # fail2ban-regex against a realistic log line (0 matched -> 1 matched,
+    # correctly extracting <HOST> from inside the <sip:...@HOST:port>
+    # construct), and confirmed the pre-existing blank line before the
+    # "# FreePBX" block doesn't break multi-line failregex parsing (checked
+    # directly via Python's configparser) before trusting this. This is a
+    # DIFFERENT gap from the SecurityEvent= one Part 2 fixes via logger.conf —
+    # apply both, they cover different attacker behavior.
+    ASTERISK_F2B_FILTER="/etc/fail2ban/filter.d/asterisk.conf"
+    if [ -f "$ASTERISK_F2B_FILTER" ]; then
+        if grep -q 'Failed to authenticate device <sip' "$ASTERISK_F2B_FILTER"; then
+            info "fail2ban asterisk filter: chan_sip regex already present"
+        else
+            sed -i '/^# FreePBX/i\            ^Failed to authenticate device <sip:[^@]*@<HOST>(?::\\d+)?>.*$' \
+                "$ASTERISK_F2B_FILTER"
+            success "fail2ban asterisk filter: added chan_sip 'Failed to authenticate device' regex"
+        fi
+    else
+        warning "fail2ban asterisk filter not found at $ASTERISK_F2B_FILTER — chan_sip regex fix skipped"
+    fi
+
     fail2ban-client -t >/dev/null 2>&1 || warning "fail2ban config test failed — review $F2B_JAIL"
     systemctl enable --now fail2ban
     sleep 3
