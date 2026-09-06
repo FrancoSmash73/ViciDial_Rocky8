@@ -2594,6 +2594,29 @@ else
     warning "sip.conf not found — websocket_enabled fix will need to be applied manually after install.pl"
 fi
 
+# FIX: logger.conf must emit SECURITY-level events, or fail2ban's [asterisk]
+# jail (Part 1) is silently blind. The jail's stock SecurityEvent= regex can
+# only ever match lines Asterisk actually writes to a log file, and the
+# default logger.conf never enables the `security` level on any channel —
+# so `SecurityEvent="FailedACL"` etc. are generated internally but never hit
+# disk, and that whole detection path never fires. Confirmed missing and
+# fixed 2026-09-06.
+# ---------------------------------------------------------------------------
+LOGGER_CONF="/etc/asterisk/logger.conf"
+if [ -f "$LOGGER_CONF" ]; then
+    if grep -q "^messages.*security" "$LOGGER_CONF"; then
+        info "logger.conf: messages channel already logs security events"
+    else
+        sed -i 's/^\(messages => .*\)$/\1,security/' "$LOGGER_CONF"
+        success "logger.conf: security level added to messages channel"
+    fi
+    if command -v asterisk &>/dev/null && asterisk -rx "core show version" &>/dev/null; then
+        asterisk -rx "logger reload" &>/dev/null
+    fi
+else
+    warning "logger.conf not found — security-level logging fix will need to be applied manually after install.pl"
+fi
+
 # FIX #3: Improved GMT offset calculation (no Python dependency)
 log "Setting server local_gmt based on system timezone..."
 
