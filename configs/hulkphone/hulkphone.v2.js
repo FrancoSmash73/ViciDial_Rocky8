@@ -1,6 +1,6 @@
 /**
  * HulkPhone.js — SIP.js WebRTC Core
- * Version: 1.1.0
+ * Version: 1.2.0
  *
  * Architecture:
  *   - Uses SIP.js 0.20.x SimpleUser (high-level API) for the primary call
@@ -11,6 +11,27 @@
  *     Session.refer() (a second, manually-managed SIP.Inviter for the warm
  *     consult leg, since SimpleUser only ever tracks one session)
  *   - Timer, status, and ViciDial parent window communication
+ *
+ * 1.2.0 changes:
+ *   - Fixed the intermittent "registers fine but agent hears no audio" race:
+ *     ViciDial's own vicidial.php independently Originates a call into the
+ *     SAME conference extension on agent login (its classic ring-a-hardphone-
+ *     into-the-conference mechanism — confirmed live via vicidial_manager and
+ *     Asterisk's pjsip logger), racing our own placeCall(CFG.conf_exten).
+ *     SimpleUser only tracks one Session at a time: whichever INVITE claims
+ *     it first wins. If ours wins (the common case), the second INVITE just
+ *     hits SimpleUser's built-in clean reject path — harmless. If ViciDial's
+ *     wins, our own placeCall() used to fail outright with "Session already
+ *     exists" and silently give up, leaving the agent registered but never
+ *     actually joined to the conference (no error the agent would notice —
+ *     exactly the reported symptom). Fix: treat losing that race as another
+ *     way of *winning* it — answering ViciDial's Originate joins the same
+ *     conference, so the first incoming call before we've joined this
+ *     registration cycle (confJoined) is now auto-answered like the existing
+ *     from === CFG.conf_exten case, and placeCall() no longer surfaces
+ *     "CALL FAILED" for the resulting harmless double-join race with itself.
+ *     Also shortened the post-register dial delay (800ms → 150ms) to shrink
+ *     the window in which ViciDial's Originate can win in the first place.
  *
  * 1.1.0 changes:
  *   - Fixed blind transfer: old code called ua.refer(), which doesn't exist
@@ -87,6 +108,7 @@
     let callSeconds   = 0;
     let hasRegisteredOnce = false; // distinguishes first REGISTER from a post-drop reconnect
     let reconnectWatchdog = null;  // fires only if SimpleUser's own retries never recover
+    let confJoined = false;   // have we joined CFG.conf_exten yet this registration cycle?
 
     // ════════════════════════════════════════════════════════════
     //  STATUS HELPERS
@@ -404,7 +426,7 @@
                 // Inbound INVITE. Note SimpleUser rejects any INVITE arriving
                 // while a session already exists, so this never fires while the
                 // agent holds the ViciDial conference leg — that path keeps
-                // returning 486 Busy exactly as it did before.
+                // returning a clean rejection exactly as it did before.
                 onCallReceived: function() {
                     const from = (ua.session && ua.session.remoteIdentity)
                         ? ua.session.remoteIdentity.uri.user : '';
@@ -412,9 +434,19 @@
 
                     // A call *from* the conference extension is machine-driven,
                     // not a human calling the agent, so it still picks up on its
-                    // own. Kept as a guard in case ViciDial is ever reconfigured
-                    // to originate toward the phone (webphone_call_seconds > 0).
-                    if (CFG.auto_answer && CFG.conf_exten && from === CFG.conf_exten) {
+                    // own. Also auto-answer the first call of any kind before
+                    // we've joined the conference this registration cycle: that
+                    // is ViciDial's own vicidial.php independently Originating a
+                    // call into this same extension on login (see placeCall()/
+                    // onRegistered below) — answering it joins the conference
+                    // just as our own placeCall() would have, so treat losing
+                    // that race as another way of winning it rather than
+                    // ringing the agent for a call nobody actually placed to
+                    // them. A genuine inbound customer call can't land here —
+                    // ViciDial routes those through the dialer/queue, never as
+                    // a direct ring to the raw extension moments after login.
+                    if (CFG.auto_answer && CFG.conf_exten && (from === CFG.conf_exten || !confJoined)) {
+                        confJoined = true;
                         setStatus('RING');
                         setCallBtnCallMode();
                         try { ua.answer(); } catch(e) { console.error('HulkPhone auto-answer failed:', e); }
@@ -451,6 +483,7 @@
                     setStatus('REG');
                     setCallBtnIdleMode();
                     session = null;
+                    confJoined = false; // conference leg is gone; a later rejoin attempt shouldn't be blocked
                     endWarmTransfer(); // don't leave a consult leg dangling if the primary call ends first
                 },
                 onRegistered: function() {
@@ -459,13 +492,18 @@
                     toast(hasRegisteredOnce ? 'RECONNECTED ✓' : 'REGISTERED ✓', 2000);
                     console.log('HulkPhone: Registered as ' + aor);
                     hasRegisteredOnce = true;
+                    confJoined = false; // fresh registration cycle, haven't joined yet
                     // Auto-call conference extension on register (including after a
                     // reconnect — the agent's prior conference leg is gone by then,
                     // since onDisconnect above already tore down any active session).
                     // dialRegExten_enabled=1 in ViciDial suppresses NoneInSession dialog.
+                    // Delay shortened from 800ms: the sooner we place this call, the
+                    // more likely we claim SimpleUser's session slot before ViciDial's
+                    // own redundant server-side Originate does (see onCallReceived) —
+                    // though we no longer depend on winning that race either way.
                     if (CFG.auto_answer && CFG.conf_exten) {
                         console.log('HulkPhone: Auto-calling conference ' + CFG.conf_exten);
-                        setTimeout(function() { placeCall(CFG.conf_exten); }, 800);
+                        setTimeout(function() { if (!confJoined) placeCall(CFG.conf_exten); }, 150);
                     }
                     },
                 onUnregistered: function() {
@@ -536,10 +574,22 @@
                 constraints: { audio: AUDIO_CONSTRAINTS, video: false },
             },
         }).then(function() {
+            confJoined = true;
             // session is managed by SimpleUser delegate
             toast('CALLING ' + target, 2000);
             setCallBtnCallMode();
         }).catch(function(err) {
+            // "Session already exists" while dialing our own conference extension
+            // means ViciDial's redundant server-side Originate (see onCallReceived)
+            // won the race and we already auto-answered our way into the same
+            // conference — a harmless double-join with ourselves, not a real
+            // failure, so don't alarm the agent over it.
+            if (target === CFG.conf_exten && err && /Session already exists/.test(err.message || '')) {
+                console.log('HulkPhone: conference already joined via incoming call, skipping duplicate dial');
+                confJoined = true;
+                setCallBtnCallMode();
+                return;
+            }
             console.error('HulkPhone call error:', err);
             setStatus('REG');
             setCallBtnIdleMode();
