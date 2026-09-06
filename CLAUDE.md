@@ -15,7 +15,7 @@ elsewhere, it isn't this server.
 
 | Role | Value | Notes |
 |------|----|-------|
-| **Public IP** | `104.207.140.83` (stale — see note below) | Asterisk + MariaDB + Apache/PHP all on this one host |
+| **Public IP** | `187.189.34.192` (behind CGNAT — see note below) | Asterisk + MariaDB + Apache/PHP all on this one host. Old IP `104.207.140.83` is deleted/decommissioned as of 2026-09-06 — don't reference it anymore |
 | **DDNS hostnames** | `dialengine.ddns.net`, `callbakz.ddns.net` | **Stale as of 2026-09-05 — neither resolves here anymore, both moved (both accounted for, see note below)** |
 
 **2026-09-05 DNS drift:** Oliver's actual public-facing IP (per `curl -4 ifconfig.me` from this box)
