@@ -220,6 +220,41 @@ asterisk -rx "module show like res_pjsip_transport_websocket"
 # Must show: Running
 ```
 
+### WebRTC agent phones — crackly audio from opus↔8kHz ConfBridge transcoding
+
+Symptom: a `PJSIP_WEBRTC`-template agent phone (e.g. extension 20001, first hit on the
+vicidial-rocky10 box "Manny" 2026-09-06) sounds clean while alone in the agent ConfBridge (hearing
+the "you are the only participant" prompt) but goes crackly/choppy the moment a second leg
+(customer call, PSTN test call, etc.) actually connects and real two-way audio starts.
+
+Root cause: the `PJSIP_WEBRTC` template (`vicidial_conf_templates`) sets `allow=opus` before
+`allow=ulaw`, so browsers (which offer Opus first) negotiate Opus at 48kHz — but ViciDial's
+`vici_agent_bridge` ConfBridge mixes at 8kHz. That forces a double resample/transcode on every
+frame in both directions (`opus@48k -> slin@48k -> slin@8k` and back). A static prompt file
+tolerates the jitter this introduces; live conversational audio doesn't. Confirmed NOT the cause:
+the HulkPhone JS itself (checked via diff — no audio/codec changes in the relevant commit), and NOT
+network loss/jitter (RTCP on the WebRTC leg showed 0% loss, ~0.25ms jitter throughout a test call).
+
+Fix — force `ulaw`-only on the affected extension via `phones.conf_override`, which is appended
+*after* the template block during config generation and so wins over the template's `allow=opus`
+without editing the shared template (safe to apply per-extension without affecting sibling
+WebRTC phones):
+
+```sql
+UPDATE phones SET conf_override='endpoint/disallow=all\nendpoint/allow=ulaw' WHERE extension='20001';
+UPDATE servers SET rebuild_conf_files='Y' WHERE server_ip='<this server's IP>';
+```
+```bash
+perl /usr/share/astguiclient/ADMIN_keepalive_ALL.pl --force
+asterisk -rx "pjsip show endpoint 20001" | grep "^ allow"   # should show only (ulaw)
+```
+
+As of 2026-09-06 this fix is applied **only to extension 20001** on Manny. Extensions 20002–20010
+(created the same day, same `PJSIP_WEBRTC` template) still allow `opus|ulaw` and will likely hit
+the same crackle once they're used for real calls — deliberately left as-is per user request rather
+than pre-emptively patched. If/when the same symptom shows up on any of them (or a new WebRTC
+extension elsewhere built from this repo's install scripts), apply the same `conf_override` there.
+
 ### ps truncation on Rocky Linux 10 — 4 ViciDial scripts affected
 
 `procps-ng 4.0.4` (Rocky Linux 10) truncates output of `ps -o "%p %a"` to ~30 chars, cutting off full

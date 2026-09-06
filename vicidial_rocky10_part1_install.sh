@@ -1117,13 +1117,26 @@ else
     printf "  %-35s [\e[31mFAIL\e[0m] (not running in screen session)\n" "asterisk"
 fi
 
+# dahdi and rc-local are LSB/generator oneshot units with no RemainAfterExit:
+# once their one-time module-load / rc.local script has run successfully,
+# systemd correctly shows them as "inactive (dead)" -- that's the healthy
+# end state, not a failure, same class of false positive as asterisk.service
+# above. `systemctl is-active` can't tell "ran fine and exited" apart from
+# "never ran" or "crashed", but `systemctl is-failed` can -- it only reports
+# true for a unit that actually failed.
+for svc in dahdi rc-local; do
+    if systemctl is-failed --quiet "$svc" 2>/dev/null; then
+        printf "  %-35s [\e[31mFAIL\e[0m] (failed)\n" "$svc"
+    else
+        printf "  %-35s [\e[32m OK \e[0m]\n" "$svc"
+    fi
+done
+
 services=(
     "mariadb"
     "httpd"
     "php-fpm"
-    "dahdi"
     "chronyd"
-    "rc-local"
     "vicidial-keepalive.timer"
     "vicidial-process-monitor"
     "tuned"
