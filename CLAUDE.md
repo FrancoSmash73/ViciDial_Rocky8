@@ -29,9 +29,19 @@ hostnames were the real reachability path. Both have since moved off Oliver enti
   to sit behind this same DDNS name, and the same account later repointed it to this Vultr box. Same
   account, not a hijack/reused name — just this hostname being reassigned to newer infrastructure
   over time. No further action needed on this point.
-- Separately noticed: Oliver currently has a live `wg0` WireGuard interface (`10.0.0.2/24`), which
-  contradicts this file's own prior verified conclusion (commit `e93261f`) that no wg0 tunnel exists
-  here. Not re-investigated this session — flagging the discrepancy for a future check.
+- **`wg0` interface — resolved, not a discrepancy.** Oliver's live `wg0` WireGuard interface
+  (`10.0.0.2/24`) contradicted this file's prior conclusion (commit `e93261f`) that no wg0 tunnel
+  exists here. Since investigated and understood: it's a real, healthy WireGuard tunnel to a Vultr
+  relay VPS (currently `149.28.64.211` — also what `callbakz.ddns.net` and
+  `sip.campaignvoiceservices.com` resolve to, all the same box), carrying SIP/RTP/WSS to Oliver via
+  firewalld DNAT on the VPS side. Runs on UDP/33445 instead of WireGuard's default specifically
+  because the office ISP (Mexican CGNAT) silently drops outbound UDP on common VPN ports and can
+  change that filter list at any time — if this tunnel ever looks dead, check for renewed ISP
+  port-blocking before anything else (`wg show wg0` for handshake/traffic, full troubleshooting
+  path in the private `vicidial-skin` repo's `dynportal/README.md`). `e93261f`'s "no tunnel exists"
+  conclusion was simply wrong at the time it was verified, or the tunnel was added afterward — the
+  earlier check's own history is inconclusive, but the current live state is confirmed and healthy
+  as of 2026-09-06.
 
 - **Asterisk version:** `18.21.0-vici`
 - **OS:** Rocky Linux 10
