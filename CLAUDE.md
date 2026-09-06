@@ -16,7 +16,7 @@ elsewhere, it isn't this server.
 | Role | Value | Notes |
 |------|----|-------|
 | **Public IP** | `104.207.140.83` (stale — see note below) | Asterisk + MariaDB + Apache/PHP all on this one host |
-| **DDNS hostnames** | `dialengine.ddns.net`, `callbakz.ddns.net` | **Stale as of 2026-09-05 — see note below, neither resolves here anymore** |
+| **DDNS hostnames** | `dialengine.ddns.net`, `callbakz.ddns.net` | **Stale as of 2026-09-05 — neither resolves here anymore, both moved (both accounted for, see note below)** |
 
 **2026-09-05 DNS drift:** Oliver's actual public-facing IP (per `curl -4 ifconfig.me` from this box)
 is now `187.189.34.192`, not `104.207.140.83` — it sits behind CGNAT (private LAN IP
@@ -29,9 +29,6 @@ hostnames were the real reachability path. Both have since moved off Oliver enti
   to sit behind this same DDNS name, and the same account later repointed it to this Vultr box. Same
   account, not a hijack/reused name — just this hostname being reassigned to newer infrastructure
   over time. No further action needed on this point.
-- Separately noticed: Oliver currently has a live `wg0` WireGuard interface (`10.0.0.2/24`), which
-  contradicts this file's own prior verified conclusion (commit `e93261f`) that no wg0 tunnel exists
-  here. Not re-investigated this session — flagging the discrepancy for a future check.
 - Separately noticed: Oliver currently has a live `wg0` WireGuard interface (`10.0.0.2/24`), which
   contradicts this file's own prior verified conclusion (commit `e93261f`) that no wg0 tunnel exists
   here. Not re-investigated this session — flagging the discrepancy for a future check.
