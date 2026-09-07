@@ -330,7 +330,7 @@ var HP_CONFIG = {
 </script>
 
 <!-- HulkPhone Core -->
-<script src="js/hulkphone.v2.js?v=12"></script>
+<script src="js/hulkphone.v2.js?v=15"></script>
 
 </body>
 </html>

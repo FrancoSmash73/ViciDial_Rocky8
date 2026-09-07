@@ -1,6 +1,6 @@
 /**
  * HulkPhone.js — SIP.js WebRTC Core
- * Version: 1.2.0
+ * Version: 1.3.2
  *
  * Architecture:
  *   - Uses SIP.js 0.20.x SimpleUser (high-level API) for the primary call
@@ -32,6 +32,65 @@
  *     "CALL FAILED" for the resulting harmless double-join race with itself.
  *     Also shortened the post-register dial delay (800ms → 150ms) to shrink
  *     the window in which ViciDial's Originate can win in the first place.
+ *
+ * 1.3.2 changes:
+ *   - 1.3.1's confJoined timing gate wasn't enough: leaving the login-race
+ *     INVITE (ViciDial's own vicidial.php NoneInSessionCalL() mechanism,
+ *     see below) ringing unanswered turned out to be actively destructive,
+ *     not just harmless — confirmed live: about 2 minutes after the base
+ *     call joined the conference normally, ViciDial's own AMI ('sendcron')
+ *     hung up the agent's entire working session, almost certainly a
+ *     keepalive/health-check reacting to the stuck unanswered ringing
+ *     channel — which then forced a reconnect, re-registration, and hit
+ *     the same race again, looping ("Weasels" fallback prompt on repeat).
+ *     Timing (confJoined) can't reliably tell "our own login mechanism"
+ *     apart from "a real transfer" — both can arrive in either window.
+ *     Fix: identify it directly instead, by caller-identity rather than
+ *     timing. vicidial.php's NoneInSessionCalL() (the classic "ring agent
+ *     into conference on login" JS, confirmed at vicidial.php:19066) always
+ *     builds its Originate's caller-id as `"ACagcW" + epoch_sec + user_abb`
+ *     — a stable, hardcoded prefix specific to that one mechanism, never
+ *     used by an AGENTDIRECT transfer's Dial(). Any INVITE whose From
+ *     carries that prefix is now always silently absorbed (auto-answered
+ *     if we haven't joined our conference yet, cleanly declined if we
+ *     already have — i.e. exactly v1.2.0's original behavior, unconditional
+ *     on timing) — regardless of confJoined. Only an INVITE WITHOUT that
+ *     prefix, arriving after confJoined, is treated as a genuine transfer.
+ *
+ * 1.3.1 changes:
+ *   - Fixed a regression 1.3.0 introduced into the exact race 1.2.0 fixed:
+ *     the onInvite interception gated on `ua.session` (truthy the instant
+ *     placeCall() is called, before the call is answered), not `confJoined`
+ *     (true only once it's answered) — so a redundant login-race INVITE
+ *     arriving while our own self-dial was still in flight got wrongly
+ *     rung as an incoming transfer instead of being absorbed the 1.2.0 way.
+ *     Confirmed live: 20002 looped on Asterisk's "Weasels" fallback prompt
+ *     on every login. Gate is now confJoined, see init() for the reasoning.
+ *
+ * 1.3.0 changes:
+ *   - AGENTDIRECT transfers (now working server-side end to end) were still
+ *     silently failing client-side: agi-VDAD_ALL_inbound.agi's real routing
+ *     is a plain Dial() straight to the target agent's raw extension, but
+ *     SimpleUser only ever tracks one Session and rejects any INVITE that
+ *     arrives while one already exists — confirmed against the vendored
+ *     sip.js source, this rejection happens at the UserAgent level, before
+ *     onCallReceived is even called, so there was no delegate hook to react
+ *     to it. The transferring call would ring briefly then drop to voicemail
+ *     with the target agent never seeing anything.
+ *     Fix: intercept ua.userAgent.delegate.onInvite directly (see init())
+ *     to catch this specific case — a second INVITE while ua.session is
+ *     already occupied — and ring the agent for it exactly like a normal
+ *     incoming call (handleIncomingTransfer/answerTransfer/declineTransfer),
+ *     rather than auto-answering it. Deliberately NOT an automatic swap:
+ *     stray/duplicate INVITEs are a real, observed phenomenon in this
+ *     system (it's what the 1.2.0 registration-race fix works around), so
+ *     auto-answering any second call with no confirmation would risk
+ *     silently dropping a live customer call with zero warning if a false
+ *     positive ever occurred. The agent explicitly answers to accept the
+ *     transfer (which then hangs up their base call first) or hangs up to
+ *     decline it (their base call is left untouched). After a transfer
+ *     call ends, automatically re-joins CFG.conf_exten (same as after
+ *     registering) so the agent isn't left with no active call at all.
  *
  * 1.1.0 changes:
  *   - Fixed blind transfer: old code called ua.refer(), which doesn't exist
@@ -109,6 +168,9 @@
     let hasRegisteredOnce = false; // distinguishes first REGISTER from a post-drop reconnect
     let reconnectWatchdog = null;  // fires only if SimpleUser's own retries never recover
     let confJoined = false;   // have we joined CFG.conf_exten yet this registration cycle?
+    let transferPending = false;         // a second call (see handleIncomingTransfer) is ringing
+    let pendingTransferInvitation = null; // its raw sip.js Invitation, outside SimpleUser's own tracking
+    let inTransferCall = false;          // current call replaced the base conference leg via a transfer
 
     // ════════════════════════════════════════════════════════════
     //  STATUS HELPERS
@@ -485,6 +547,16 @@
                     session = null;
                     confJoined = false; // conference leg is gone; a later rejoin attempt shouldn't be blocked
                     endWarmTransfer(); // don't leave a consult leg dangling if the primary call ends first
+                    // A transfer call replaces the base conference leg (see answerTransfer) —
+                    // once it ends there's no active call left at all, so rejoin the
+                    // conference the same way registration does rather than leaving the
+                    // agent stranded with nothing.
+                    if (inTransferCall) {
+                        inTransferCall = false;
+                        if (CFG.auto_answer && CFG.conf_exten) {
+                            setTimeout(function() { if (!confJoined) placeCall(CFG.conf_exten); }, 150);
+                        }
+                    }
                 },
                 onRegistered: function() {
                     clearReconnectWatchdog();
@@ -519,6 +591,47 @@
 
         try {
             ua = new SIP.Web.SimpleUser(CFG.ws_url, simpleUserOptions);
+
+            // SimpleUser's own onInvite (set on ua.userAgent.delegate at
+            // construction) rejects any INVITE that arrives while ua.session
+            // is already occupied, before onCallReceived is ever called —
+            // confirmed against the vendored sip.js source. A genuine
+            // AGENTDIRECT transfer hits exactly this: the target agent's own
+            // base conference call occupies the only session slot SimpleUser
+            // tracks, so the transfer's INVITE always got silently rejected.
+            // Wrap it here, underneath SimpleUser's public API, so a second
+            // call can ring the agent (handleIncomingTransfer) instead of
+            // being auto-rejected.
+            //
+            // Identify ViciDial's own login-race INVITE by caller-identity,
+            // not timing (1.3.1's confJoined gate wasn't enough — leaving
+            // that specific INVITE unanswered turned out to make ViciDial's
+            // own keepalive hang up the agent's whole session, see the
+            // 1.3.2 changelog). vicidial.php's NoneInSessionCalL() — the
+            // classic "ring agent into conference on login" mechanism —
+            // always builds its Originate's caller-id as "ACagcW"+epoch+
+            // user_abb (vicidial.php:19066), a prefix no real transfer's
+            // Dial() would ever carry. Anything with that prefix is always
+            // silently absorbed, exactly like v1.2.0 did, regardless of
+            // confJoined; only something WITHOUT it, arriving after
+            // confJoined is genuinely true, is treated as an actual
+            // incoming transfer.
+            const simpleUserOnInvite = ua.userAgent.delegate.onInvite;
+            ua.userAgent.delegate.onInvite = function(invitation) {
+                const fromName = (invitation.remoteIdentity && invitation.remoteIdentity.friendlyName) || '';
+                if (/^ACagcW/.test(fromName)) {
+                    if (ua.session) {
+                        try { invitation.reject(); } catch(e) {}
+                    } else {
+                        absorbLoginRaceInvite(invitation);
+                    }
+                } else if (confJoined) {
+                    handleIncomingTransfer(invitation);
+                } else {
+                    simpleUserOnInvite.call(ua.userAgent, invitation);
+                }
+            };
+
             ua.connect().then(function() {
                 return ua.register();
             }).catch(function(err) {
@@ -528,6 +641,106 @@
         } catch(e) {
             console.error('HulkPhone init error:', e);
         }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  INCOMING TRANSFER (second call while the base session is active)
+    // ════════════════════════════════════════════════════════════
+    //
+    // Reached only via the ua.userAgent.delegate.onInvite wrapper above.
+    // Deliberately rings the agent rather than auto-answering: stray/
+    // duplicate INVITEs are a real, observed phenomenon in this system
+    // (see the 1.2.0 registration-race fix), so silently swapping into any
+    // second call with no confirmation risks dropping a live customer call
+    // with zero warning on a false positive. The agent explicitly answers
+    // to accept (dropping their base call first) or hangs up to decline
+    // (base call left untouched).
+
+    // ViciDial's own NoneInSessionCalL() login-race Originate (identified
+    // by its "ACagcW"-prefixed caller-id, see init()) is never a transfer —
+    // silently join it exactly like v1.2.0 always did. Leaving it unanswered
+    // isn't just a missed call: ViciDial's own keepalive eventually hangs up
+    // the agent's entire session to clean up the stuck ringing channel.
+    function absorbLoginRaceInvite(invitation) {
+        confJoined = true;
+        ua.initSession(invitation);
+        ua.answer({
+            sessionDescriptionHandlerOptions: {
+                constraints: { audio: AUDIO_CONSTRAINTS, video: false },
+            },
+        }).catch(function(err) {
+            console.error('HulkPhone: failed to absorb login-race invite', err);
+        });
+        setStatus('RING');
+        setCallBtnCallMode();
+        setTimeout(function() { if (ua.session) session = ua.session; }, 300);
+    }
+
+    function handleIncomingTransfer(invitation) {
+        if (transferPending) {
+            // Already ringing one transfer; decline a second stacked one
+            // outright rather than silently replacing the first.
+            try { invitation.reject(); } catch(e) {}
+            return;
+        }
+        const from = (invitation.remoteIdentity && invitation.remoteIdentity.uri)
+            ? invitation.remoteIdentity.uri.user : '';
+        console.log('HulkPhone: Incoming transfer from ' + from);
+        try { invitation.progress(); } catch(e) {}
+        pendingTransferInvitation = invitation;
+        transferPending = true;
+        setStatus('RING');
+        startRing();
+        startFlash('XFER: ' + (from || 'CALL'));
+        setCallBtnAnswerMode();
+        toast('INCOMING TRANSFER', 4000);
+    }
+
+    function answerTransfer() {
+        if (!ua || !transferPending || !pendingTransferInvitation) return;
+        const incoming = pendingTransferInvitation;
+        transferPending = false;
+        pendingTransferInvitation = null;
+        stopRing();
+        setStatus('CONN');
+        setCallBtnCallMode();
+        // Accepting a transfer means leaving whatever the base call was —
+        // same as a real phone, taking a second call ends the first.
+        const dropBase = ua.session ? ua.hangup().catch(function() {}) : Promise.resolve();
+        dropBase.then(function() {
+            inTransferCall = true;
+            // initSession is SimpleUser's own (not underscore-private)
+            // session setup — wires the state-change listener that drives
+            // media setup and onCallAnswered/onCallHangup, same as it does
+            // internally for every other call. Calling it directly here is
+            // the same level of "underneath the public API" as the warm
+            // transfer consult leg already does elsewhere in this file.
+            ua.initSession(incoming);
+            return ua.answer({
+                sessionDescriptionHandlerOptions: {
+                    constraints: { audio: AUDIO_CONSTRAINTS, video: false },
+                },
+            });
+        }).catch(function(err) {
+            console.error('HulkPhone: failed to answer transfer', err);
+            inTransferCall = false;
+            setStatus('REG');
+            setCallBtnIdleMode();
+            toast('TRANSFER ANSWER FAILED', 3000);
+        });
+    }
+
+    function declineTransfer() {
+        if (!transferPending || !pendingTransferInvitation) return;
+        const incoming = pendingTransferInvitation;
+        transferPending = false;
+        pendingTransferInvitation = null;
+        stopRing();
+        setCallBtnIdleMode();
+        // Base call was never touched — restore its in-call visual state.
+        if (ua && ua.session) { setStatus('CONN'); setCallBtnCallMode(); }
+        else { setStatus('REG'); }
+        try { incoming.reject(); } catch(e) {}
     }
 
     // ════════════════════════════════════════════════════════════
@@ -599,6 +812,10 @@
 
     function hangup() {
         if (!ua) return;
+        if (transferPending) {
+            declineTransfer();
+            return;
+        }
         // An unanswered inbound call must be declined (486), not hung up —
         // there is no established dialog to send BYE on.
         if (pendingInvite) {
@@ -871,7 +1088,9 @@
     // ════════════════════════════════════════════════════════════
 
     function callAction() {
-        if (pendingInvite) {
+        if (transferPending) {
+            answerTransfer();
+        } else if (pendingInvite) {
             answerCall();
         } else if (callActive) {
             hangup();
