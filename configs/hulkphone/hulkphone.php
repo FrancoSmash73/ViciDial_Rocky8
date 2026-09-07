@@ -292,7 +292,7 @@ $t = isset($lang[$language]) ? $lang[$language] : $lang['en'];
 <!-- Hidden audio element -->
 <audio id="hp-remote-audio" autoplay></audio>
 <audio id="hp-ring-audio" loop>
-    <source src="sounds/ring.mp3" type="audio/mpeg">
+    <source src="sounds/ring2.mp3" type="audio/mpeg">
 </audio>
 
 <!-- ══════════════════════════════════════════════════════════════
