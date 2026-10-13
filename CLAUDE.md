@@ -24,7 +24,13 @@ is now `187.189.34.192`, not `104.207.140.83` — it sits behind CGNAT (private 
 hostnames were the real reachability path. Both have since moved off Oliver entirely:
 - `dialengine.ddns.net` → `45.63.17.128` (the new vicidial-rocky10 server being built — intentional,
   confirmed by the user).
-- `callbakz.ddns.net` → `149.28.64.211`, a Vultr-hosted nginx box. **Resolved, benign:** checked
+- **Update 2026-10-13:** the relay VPS moved again. The Vultr box (`149.28.64.211`) died and the
+  relay was rebuilt 2026-10-12 on an InMotion Alma 9 VPS, **`216.194.173.220`** — which is what
+  `callbakz.ddns.net` resolves to now and what `wg0` points at (`/etc/wireguard/wg0.conf`,
+  `Endpoint = 216.194.173.220:33445`, handshake verified healthy after reboot).
+  `sip.campaignvoiceservices.com` now resolves to Cloudflare addresses, not the relay. The
+  `149.28.64.211` references below are historical (as of 2026-09-05/06).
+- `callbakz.ddns.net` → `149.28.64.211`, a Vultr-hosted nginx box (historical, see update above). **Resolved, benign:** checked
   against the No-IP account that manages this hostname — "Oliver" was a previous install that used
   to sit behind this same DDNS name, and the same account later repointed it to this Vultr box. Same
   account, not a hijack/reused name — just this hostname being reassigned to newer infrastructure
@@ -32,8 +38,7 @@ hostnames were the real reachability path. Both have since moved off Oliver enti
 - **`wg0` interface — resolved, not a discrepancy.** Oliver's live `wg0` WireGuard interface
   (`10.0.0.2/24`) contradicted this file's prior conclusion (commit `e93261f`) that no wg0 tunnel
   exists here. Since investigated and understood: it's a real, healthy WireGuard tunnel to a Vultr
-  relay VPS (currently `149.28.64.211` — also what `callbakz.ddns.net` and
-  `sip.campaignvoiceservices.com` resolve to, all the same box), carrying SIP/RTP/WSS to Oliver via
+  relay VPS (`149.28.64.211` at the time; now `216.194.173.220`, see update above), carrying SIP/RTP/WSS to Oliver via
   firewalld DNAT on the VPS side. Runs on UDP/33445 instead of WireGuard's default specifically
   because the office ISP (Mexican CGNAT) silently drops outbound UDP on common VPN ports and can
   change that filter list at any time — if this tunnel ever looks dead, check for renewed ISP
@@ -43,7 +48,20 @@ hostnames were the real reachability path. Both have since moved off Oliver enti
   earlier check's own history is inconclusive, but the current live state is confirmed and healthy
   as of 2026-09-06.
 
-- **Asterisk version:** `18.21.0-vici`
+- **Asterisk version:** `20.18.2` (plain upstream, built 2026-02-26; **not** `18.21.0-vici` as this file
+  said until 2026-10-13). Verified live: `asterisk -rx "core show version"`. Source tree at
+  `/usr/src/asterisk-20.18.2` was deleted once and restored 2026-09-28 from
+  `/usr/src/asterisk-20-current.tar.gz` (see `RESTORATION-NOTES.txt` there) — original configure
+  options, menuselect choices and local patches were **not** recoverable. **Build-repo mismatch:**
+  `vicidial_rocky10_part2_install.sh` still builds Asterisk 18 (ViciDial-patched), so it will not
+  reproduce this box; the box was built from `/root/ViciDial_Install_Part2.sh` (Asterisk 20.18.2).
+  Check this before assuming a fresh install matches Oliver.
+- **DAHDI:** source is not kept in `/usr/src` (it has vanished repeatedly) and no `dahdi.ko` exists for
+  any installed kernel — DAHDI was built out-of-tree with no DKMS, so removing an old kernel via
+  dnf deletes its `/lib/modules/<ver>/updates`. `dahdi.service` shows `active (exited)` regardless
+  and means nothing. Nothing on this box needs it (ConfBridge/PJSIP). An auditd watch
+  (`/etc/audit/rules.d/usrsrc.rules`, key `usrsrc`, added 2026-10-13) records whatever next deletes
+  from `/usr/src`: `ausearch -k usrsrc -i | grep -B2 -A6 "nametype=DELETE"`.
 - **OS:** Rocky Linux 10
 - **SSH port:** `1951` (not 22) — sshd only binds 1951; firewalld's `ssh` service (port 22) was dead weight and removed 2026-07-21
 - **ViciDial config:** `/etc/astguiclient.conf`
