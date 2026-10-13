@@ -3271,7 +3271,7 @@ for f in \
     "/usr/local/share/perl5/${PERL_VER}/Asterisk/AGI.pm" \
     /usr/share/astguiclient/libs/Asterisk/AGI.pm; do
     [ -f "$f" ] || { warning "$f not found - skipping"; continue; }
-    if grep -qF "eq ''" "$f" 2>/dev/null; then
+    if grep -qF "digits eq ''" "$f" 2>/dev/null; then
         log "$f: already patched"
     else
         sed -i "s/\$digits = '\"\"' if (!defined(\$digits));/\$digits = '\"\"' if (!defined(\$digits) || \$digits eq '');/g" "$f"
@@ -3485,6 +3485,9 @@ PathChanged=/etc/asterisk/sip.conf
 PathChanged=/etc/asterisk/pjsip.conf
 PathChanged=/usr/src/astguiclient/trunk/www/agc
 PathChanged=/var/www/html/agc
+PathChanged=/usr/share/astguiclient/libs/Asterisk
+PathChanged=/usr/local/share/perl5
+PathChanged=/usr/local/share/perl5/5.40/Asterisk
 
 [Install]
 WantedBy=multi-user.target
