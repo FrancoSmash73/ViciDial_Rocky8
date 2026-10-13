@@ -59,7 +59,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 [ "$(id -u)" -ne 0 ] && error "Must be run as root"
 
 # ── Derived paths ─────────────────────────────────────────────────────────────
-CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
+# certbot appends -0001, -0002... to the live/ directory name when a lineage for the
+# same domain already exists (or a stale renewal conf is present), so live/${DOMAIN}
+# is not guaranteed to be the real one — a hardcoded path silently pointed Apache and
+# Asterisk at an expired cert on Oliver (2026-10-13). Pick the dir whose cert expires last.
+resolve_cert_dir() {
+    local d best="" best_end=0 end
+    for d in "/etc/letsencrypt/live/${DOMAIN}" "/etc/letsencrypt/live/${DOMAIN}"-[0-9]*; do
+        [ -f "${d}/fullchain.pem" ] || continue
+        end=$(date -d "$(openssl x509 -noout -enddate -in "${d}/fullchain.pem" 2>/dev/null | cut -d= -f2)" +%s 2>/dev/null || echo 0)
+        if [ -z "${best}" ] || [ "${end}" -gt "${best_end}" ]; then best="${d}"; best_end="${end}"; fi
+    done
+    echo "${best:-/etc/letsencrypt/live/${DOMAIN}}"
+}
+CERT_DIR="$(resolve_cert_dir)"
 AST_KEYS_DIR="/etc/asterisk/keys"
 AST_HTTP_CONF="/etc/asterisk/http.conf"
 AST_PJSIP_CONF="/etc/asterisk/pjsip.conf"
@@ -91,11 +104,12 @@ else
         log "Requesting certificate for ${DOMAIN} (webroot method)..."
         systemctl is-active --quiet httpd || systemctl start httpd
         certbot certonly --webroot -w /var/www/html \
-            -d "${DOMAIN}" \
+            -d "${DOMAIN}" --cert-name "${DOMAIN}" \
             --non-interactive --agree-tos \
             --email "admin@${DOMAIN}" \
             --no-eff-email || \
         error "certbot failed. Ensure ${DOMAIN} resolves to this server and port 80 is open."
+        CERT_DIR="$(resolve_cert_dir)"
         success "Certificate obtained: ${CERT_DIR}/fullchain.pem"
     else
         success "Certificate already exists at ${CERT_DIR}"
@@ -305,7 +319,8 @@ cat > "${DEPLOY_HOOK}" << DEPLOYHOOK
 #!/bin/bash
 # Auto-renew Asterisk TLS keys when Let's Encrypt renews the cert
 DOMAIN="${DOMAIN}"
-CERT_DIR="/etc/letsencrypt/live/\${DOMAIN}"
+# certbot exports RENEWED_LINEAGE (the real live/ dir, incl. any -0001 suffix)
+CERT_DIR="\${RENEWED_LINEAGE:-${CERT_DIR}}"
 AST_KEYS_DIR="${AST_KEYS_DIR}"
 COMBINED_PEM="${COMBINED_PEM}"
 PRIVKEY_COPY="${PRIVKEY_COPY}"
@@ -314,10 +329,10 @@ cat "\${CERT_DIR}/fullchain.pem" "\${CERT_DIR}/privkey.pem" > "\${COMBINED_PEM}"
 cp -f "\${CERT_DIR}/privkey.pem" "\${PRIVKEY_COPY}"
 chmod 600 "\${COMBINED_PEM}" "\${PRIVKEY_COPY}"
 
-# Reload Asterisk TLS (graceful — no calls dropped)
-if asterisk -rx "module reload res_crypto.so" 2>/dev/null; then
-    asterisk -rx "module reload res_tls.so" 2>/dev/null || true
-    asterisk -rx "http restart" 2>/dev/null || true
+# Reload Asterisk's HTTPS/WSS listener (:8089) — graceful, no calls dropped.
+# ("http restart" and "res_tls.so" do not exist in Asterisk 20; res_crypto doesn't
+# touch the HTTP TLS listener. "module reload http" is the real reload.)
+if asterisk -rx "module reload http" 2>/dev/null | grep -q "reloaded successfully"; then
     logger -t certbot-deploy "Asterisk TLS cert renewed for \${DOMAIN}"
 else
     logger -t certbot-deploy "WARNING: Asterisk not running — cert files updated but Asterisk not reloaded"
