@@ -28,7 +28,7 @@ hostnames were the real reachability path. Both have since moved off Oliver enti
   relay was rebuilt 2026-10-12 on an InMotion Alma 9 VPS, **`216.194.173.220`** — which is what
   `callbakz.ddns.net` resolves to now and what `wg0` points at (`/etc/wireguard/wg0.conf`,
   `Endpoint = 216.194.173.220:33445`, handshake verified healthy after reboot).
-  `sip.campaignvoiceservices.com` now resolves to Cloudflare addresses, not the relay. The
+  `sip.campaignvoiceservices.com` resolves (A record) to the relay `216.194.173.220` too — an earlier note here claiming Cloudflare was a `.com.com` search-domain artifact of `getent hosts`; use `dig +short` instead. The
   `149.28.64.211` references below are historical (as of 2026-09-05/06).
 - `callbakz.ddns.net` → `149.28.64.211`, a Vultr-hosted nginx box (historical, see update above). **Resolved, benign:** checked
   against the No-IP account that manages this hostname — "Oliver" was a previous install that used
@@ -357,9 +357,32 @@ nft list ruleset | grep "saddr !="   # Must return nothing
 # Carriers whitelisted on this server:
 # 88.151.128.22   — TBI-OUT (outbound SIP trunk; no explicit firewall rule needed —
 #                   outbound-initiated, return traffic rides conntrack established state)
+#                   NOTE: a firewalld rich rule for 88.151.128.22:5060/udp does exist, but the
+#                   rule that actually matters is TBI's own side — TBI authenticates by SOURCE
+#                   IP, not password. Traffic to it routes via wg0 (`ip route get 88.151.128.22`)
+#                   and leaves the relay, so TBI sees the relay's public IP. **Whenever the relay
+#                   VPS changes, TBI must re-authorize the new IP** or every outbound INVITE gets an
+#                   immediate `SIP/2.0 403 Not Authorized` from TBI's OpenSIPS (no 401/407
+#                   challenge) while the OPTIONS qualify still shows the contact `Avail` — which
+#                   makes "carrier looks healthy" misleading. Hit 2026-10-14 after the 2026-10-12
+#                   relay rebuild (new IP 216.194.173.220): manual dials from agent 10001 failed
+#                   with hangup cause 21 / CHANUNAVAIL; confirmed in `pjsip set logger host
+#                   88.151.128.22` capture. Still pending TBI authorization as of this note —
+#                   re-test an outbound dial after they confirm, don't assume it's fixed.
 #
-# DID4Sale (66.209.76.0/24) — decommissioned as of 2026-07-21, no longer in use.
-# Confirmed no trace anywhere (no firewall rule, no PJSIP config, no DB carrier entry).
+# DID4Sale (66.209.76.0/24) — CORRECTION 2026-10-14: the "decommissioned / no trace anywhere"
+# claim previously written here (2026-07-21) is wrong for this box. Live state: PJSIP endpoints
+# `did4sale_inb1/2/3` exist in /etc/asterisk/pjsip-carriers.conf (gateways 66.209.76.70/.72/.74),
+# Asterisk qualifies them every few seconds (inb1/inb2 `Avail`, inb3 `Unavailable`), and the
+# 2026-10-12 relay-rebuild notes list "DID4SALE repoint inbound" as a pending action. What the
+# 07-21 audit actually found is narrower: no firewalld/nft allow rule for 66.209.76.0/24, and no
+# row in `vicidial_server_carriers` (only TBI-OUT is active there — these endpoints are
+# hand-managed in pjsip-carriers.conf, not ViciDial-generated). No inbound INVITEs from those
+# IPs and zero `vicidial_closer_log` rows in 30 days, so inbound DID4Sale traffic is not
+# currently arriving. Also: `telnyx` is a configured PJSIP endpoint (192.76.120.10, with outbound
+# auth) and answers qualify. DID4Sale/Telnyx traffic goes straight out the office link
+# (`ip route get` → enp2s0), NOT through the relay, so those carriers see the office public IP
+# (187.189.34.192) as the source, unlike TBI.
 # Same audit also found and removed a stray, unexplained 5060/udp allow for a
 # DigitalOcean IP (167.99.243.205) that matched no configured carrier — if a similar
 # unrecognized rule turns up again, treat it as suspicious and verify before keeping it.
