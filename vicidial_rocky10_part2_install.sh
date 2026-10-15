@@ -3171,8 +3171,8 @@ fi
 log "Staging call-time guard files..."
 mkdir -p /usr/local/share/vicidial-rocky10/calltime-guard
 if [ -d "$SCRIPT_DIR/calltime-guard" ]; then
-    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/
-    chmod 755 /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdauto_guard.py
+    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/
+    chmod 755 /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdauto_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdc_guard.py
     success "Staged call-time guard files to /usr/local/share/vicidial-rocky10/calltime-guard/"
 else
     warning "$SCRIPT_DIR/calltime-guard not found - call-time guard will not be applied by the repatch script"
@@ -3477,6 +3477,25 @@ if [ -f "$CT_SRC/Rocky10CallTime.pm" ] && [ -f "$CT_DIAL" ]; then
     fi
 else
     warning "call-time guard sources ($CT_SRC) not found - skipping"
+fi
+
+# 8b. Same guard for MANUAL dialing in agc/vdc_db_query.php. Section 7 restores the
+#     staged (already guarded) copy after an upgrade; this covers a live copy that
+#     carries the XSS marker but lacks the guard. Must pass `php -l` or is restored.
+CT_VDC="/var/www/html/agc/vdc_db_query.php"
+if [ -f "$CT_VDC" ] && [ -x "$CT_SRC/apply_vdc_guard.py" ]; then
+    if grep -qF "$CT_MARKER" "$CT_VDC" 2>/dev/null; then
+        log "vdc_db_query.php: manual call-time guard already present"
+    else
+        cp -p "$CT_VDC" "$CT_VDC.pre-calltime-guard"
+        if "$CT_SRC/apply_vdc_guard.py" "$CT_VDC" >/dev/null && { ! command -v php &>/dev/null || php -l "$CT_VDC" &>/dev/null; }; then
+            success "vdc_db_query.php: manual call-time guard applied"
+            CHANGED=1
+        else
+            cp -p "$CT_VDC.pre-calltime-guard" "$CT_VDC"
+            warning "vdc_db_query.php: manual call-time guard FAILED to apply - restored; MANUAL DIALING IS UNGUARDED, fix manually"
+        fi
+    fi
 fi
 
 # ---------------------------------------------------------------------------

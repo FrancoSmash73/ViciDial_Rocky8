@@ -186,7 +186,16 @@ Survives upgrades: `vicidial-rocky10-repatch` section 8 re-applies it (via `appl
 `perl -c`s the result, restores the old file if that fails, and restarts the dialer; verified by
 reverting the file by hand (re-patched within 10 s). Tests: `cd calltime-guard && perl -I. test_calltime.pl`
 (40 cases, no DB); `perl -I. dryrun_hopper.pl` shows what would be blocked in the live hopper right now.
-Covers AUTO-DIAL only so far; manual dial (`agc/vdc_db_query.php`) is a separate step.
+**Manual dialing is guarded too** (`agc/vdc_db_query.php`, same marker): `manual_rocky10_calltime_check()` runs
+just before the stock `manual_dccl_check()` in both `manDiaLnextCaLL` and `manDiaLonly`, using a PHP port
+of the same rules (fuzzed against the Perl version: 4000 cases, 0 mismatches). A block returns
+`OUTSIDE LOCAL CALLING HOURS` (the agent screen already pops "outside of the local call time" for any reply
+containing "OUTSIDE"), purges the manual-dial queue/`external_dial` like the stock DNC refusal, and logs
+`ROCKY10-CALLTIME-GUARD manual BLOCK ...` via PHP `error_log` (php-fpm `www-error.log`). A lead_id that
+doesn't exist is treated as BAD_TZ and blocked. **Campaign `TEST1` is exempt** from the manual cap
+(`$r10_exempt` in that function) because it is the owner's own-number test campaign; auto-dial has no
+exemption. Re-applied by repatch section 8b (`apply_vdc_guard.py`), and the guarded file is also the staged
+copy in `agc-security-patches/vdc_db_query.php`, so an upgrade restore keeps it.
 
 ### Force ViciDial config rebuild (after carrier/SIP changes)
 > **Does NOT apply to Oliver (verified 2026-10-14).** `servers.generate_vicidial_conf` is `N` here, so
