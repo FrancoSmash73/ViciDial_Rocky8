@@ -235,6 +235,8 @@ every 6 h, and a RESOLVED mail follows. Options: `--dry-run`, `--since EPOCH` (a
 First audit (dry run over 2026-09-01..10-14, 73.6k calls, TEST1 excluded) flagged call-by-call breaches on many
 days (WASH/NM_/ALASKA/HAWAII/OREGON/ARKANSAS...), worst 10-02 (ALASKA 2.7k, WASH 1.5k) — before any guard existed.
 
+**New installs get all three layers automatically:** `vicidial_rocky10_part2_install.sh` stages `calltime-guard/` files, installs the watcher + timer, and its repatch script applies the Perl/PHP patches and triggers; its VALIDATION SUMMARY now checks guard markers, the 10 triggers and the watcher timer. Docs: `calltime-guard/README.md` (and a section in `README.md`). The exempt test campaign name `TEST1` is hard-coded in 4 places (see that README).
+
 ### Force ViciDial config rebuild (after carrier/SIP changes)
 > **Does NOT apply to Oliver (verified 2026-10-14).** `servers.generate_vicidial_conf` is `N` here, so
 > `ADMIN_keepalive_ALL.pl` skips its rebuild block entirely: `rebuild_conf_files='Y'` is never consumed or
