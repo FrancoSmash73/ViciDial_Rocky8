@@ -30,6 +30,22 @@ hostnames were the real reachability path. Both have since moved off Oliver enti
   `Endpoint = 216.194.173.220:33445`, handshake verified healthy after reboot).
   `sip.campaignvoiceservices.com` resolves (A record) to the relay `216.194.173.220` too — an earlier note here claiming Cloudflare was a `.com.com` search-domain artifact of `getent hosts`; use `dig +short` instead. The
   `149.28.64.211` references below are historical (as of 2026-09-05/06).
+- **Relay nginx `/ws` proxy (added 2026-10-14) — WebRTC phones depend on it.** HulkPhone is
+  configured (`/var/www/html/hulkphone/config.local.php`: `sip_domain=callbakz.ddns.net`,
+  `ws_port=443`) to open `wss://callbakz.ddns.net:443/ws`. The Oct 12 relay rebuild recreated
+  `callbakz.conf` with only a catch-all `location /` proxying to Apache (`10.0.0.2:80`), so `/ws`
+  returned **404** and every WebRTC extension showed "NOT registered" with no error on the
+  Asterisk side (nothing ever reached it). Fix, on the relay (`ssh vps`, port 1951): in
+  `/opt/mailcow-dockerized/data/conf/nginx/callbakz.conf` (Mailcow's nginx owns host 443 via
+  docker-proxy — there is no host-level nginx), a `location /ws` block in the `listen 443` server
+  proxies to `http://10.0.0.2:8088` (Asterisk's plain-ws listener, over wg0) with `Upgrade`/
+  `Connection "upgrade"` headers and 3600s timeouts. Original saved as
+  `callbakz.conf.bak.20261014`; apply with `docker exec $(docker ps -qf name=nginx-mailcow) nginx -t`
+  then `nginx -s reload` (graceful). Quick check from anywhere: a `curl -sk --http1.1` with
+  `Upgrade: websocket` headers to `https://callbakz.ddns.net/ws` must return `101 Switching
+  Protocols` (404 = this proxy rule is missing). **Re-apply it after any relay rebuild**, and
+  note the relay's own port 8089 (`wss`, cert for `sip.campaignvoiceservices.com`) works as an
+  alternative only for networks that allow it — 443 is what HulkPhone is set to use.
 - `callbakz.ddns.net` → `149.28.64.211`, a Vultr-hosted nginx box (historical, see update above). **Resolved, benign:** checked
   against the No-IP account that manages this hostname — "Oliver" was a previous install that used
   to sit behind this same DDNS name, and the same account later repointed it to this Vultr box. Same
