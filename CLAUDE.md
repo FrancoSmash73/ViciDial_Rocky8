@@ -222,6 +222,19 @@ or by hand — layer 3 should also alarm on a missing trigger. MyISAM tables: BE
 before any row is written, so a refused save changes nothing. A pre-trigger dump of the 5 tables is at
 `/root/calltime-tables-pre-triggers.sql`.
 
+**Layer 3 — alerting (added 2026-10-14)** — `vicidial-calltime-watch` (`calltime-guard/vicidial-calltime-watch.pl`,
+installed to `/usr/local/sbin/`, run every minute by `vicidial-calltime-watch.timer`; log
+`/var/log/astguiclient/calltime-watch.log`, state `/var/lib/vicidial-calltime-watch/`). Mails `root` (alias ->
+the admin Gmail via the relay) when: (1) any `vicidial_log` call since the last run was placed outside its lead's
+legal window (same rules as the guards, margin 0; campaign TEST1 exempt) — one mail per batch, each call once;
+(2) a non-TEST1 campaign/list has a non-compliant call time; (3) integrity fails: fewer than 10 triggers / 4
+functions, guard marker missing from `AST_VDauto_dial.pl` or `vdc_db_query.php`, guard files missing, or the
+RUNNING dialer started before its guard files changed (restart it). Problem mails fire when the set changes, repeat
+every 6 h, and a RESOLVED mail follows. Options: `--dry-run`, `--since EPOCH` (audit history without sending),
+`--db NAME`, `--test-mail`. The Perl guard takes an optional 4th arg (margin minutes, default 2).
+First audit (dry run over 2026-09-01..10-14, 73.6k calls, TEST1 excluded) flagged call-by-call breaches on many
+days (WASH/NM_/ALASKA/HAWAII/OREGON/ARKANSAS...), worst 10-02 (ALASKA 2.7k, WASH 1.5k) — before any guard existed.
+
 ### Force ViciDial config rebuild (after carrier/SIP changes)
 > **Does NOT apply to Oliver (verified 2026-10-14).** `servers.generate_vicidial_conf` is `N` here, so
 > `ADMIN_keepalive_ALL.pl` skips its rebuild block entirely: `rebuild_conf_files='Y'` is never consumed or

@@ -1,0 +1,8 @@
+[Unit]
+Description=ViciDial call-time guard watcher (layer 3 alerting)
+After=mariadb.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vicidial-calltime-watch
+Nice=10

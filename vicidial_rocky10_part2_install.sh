@@ -3171,9 +3171,14 @@ fi
 log "Staging call-time guard files..."
 mkdir -p /usr/local/share/vicidial-rocky10/calltime-guard
 if [ -d "$SCRIPT_DIR/calltime-guard" ]; then
-    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py "$SCRIPT_DIR"/calltime-guard/rocky10_calltime.inc.php "$SCRIPT_DIR"/calltime-guard/calltime_triggers.sql /usr/local/share/vicidial-rocky10/calltime-guard/
+    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py "$SCRIPT_DIR"/calltime-guard/rocky10_calltime.inc.php "$SCRIPT_DIR"/calltime-guard/calltime_triggers.sql "$SCRIPT_DIR"/calltime-guard/vicidial-calltime-watch.pl /usr/local/share/vicidial-rocky10/calltime-guard/
     chmod 755 /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdauto_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdc_guard.py
     success "Staged call-time guard files to /usr/local/share/vicidial-rocky10/calltime-guard/"
+    # Layer 3: alerting watcher + 1-minute systemd timer (mails root on late calls / protection drift)
+    install -m 755 "$SCRIPT_DIR"/calltime-guard/vicidial-calltime-watch.pl /usr/local/sbin/vicidial-calltime-watch
+    install -m 644 "$SCRIPT_DIR"/calltime-guard/vicidial-calltime-watch.service "$SCRIPT_DIR"/calltime-guard/vicidial-calltime-watch.timer /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable --now vicidial-calltime-watch.timer &>/dev/null || warning "could not enable vicidial-calltime-watch.timer"
 else
     warning "$SCRIPT_DIR/calltime-guard not found - call-time guard will not be applied by the repatch script"
 fi

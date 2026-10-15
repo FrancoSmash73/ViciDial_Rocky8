@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the ViciDial call-time guard watcher every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

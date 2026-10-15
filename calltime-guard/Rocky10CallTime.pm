@@ -82,8 +82,9 @@ my %STATE_TZ;
 sub _mins { my $hhmm = shift; return int($hhmm / 100) * 60 + ($hhmm % 100); }
 
 sub rocky10_calltime_block {
-	my ($gmt, $state, $epoch) = @_;
+	my ($gmt, $state, $epoch, $margin) = @_;     # $margin (minutes) optional; default SAFETY_MIN
 	$epoch = time() unless defined $epoch;
+	$margin = SAFETY_MIN unless defined $margin;
 
 	return 'BAD_TZ(undef)' unless defined $gmt && length $gmt;
 	return "BAD_TZ($gmt)" unless $gmt =~ /^-?\d+(?:\.\d+)?$/;
@@ -112,7 +113,7 @@ sub rocky10_calltime_block {
 		$start = $ss if $ss > $start;     # intersect: never earlier than company start
 		$stop  = $se if $se < $stop;      # never later than company stop
 	}
-	my $stop_m = _mins($stop) - SAFETY_MIN;
+	my $stop_m = _mins($stop) - $margin;
 	return "OUTSIDE_WINDOW($tag local=$hhmm window=$start-$stop gmt=$gmt wday=$wday)"
 		if $now_m < _mins($start) || $now_m >= $stop_m;
 	return '';
