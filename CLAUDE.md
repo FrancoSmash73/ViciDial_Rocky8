@@ -46,6 +46,14 @@ hostnames were the real reachability path. Both have since moved off Oliver enti
   Protocols` (404 = this proxy rule is missing). **Re-apply it after any relay rebuild**, and
   note the relay's own port 8089 (`wss`, cert for `sip.campaignvoiceservices.com`) works as an
   alternative only for networks that allow it — 443 is what HulkPhone is set to use.
+- **Credentials-in-URL log redaction (added 2026-10-14).** `vicidial.php` builds the HulkPhone iframe URL
+  with `phone_pass=<base64 phones.conf_secret>` (plus stock `VD_pass`/`pp` GET params elsewhere), so the
+  SIP secret landed in access logs and `Referer` headers. Now: Apache `vicidial.conf` logs requests whose
+  query or Referer carries a `*pass*`/`*pw*`/`*secret*`/`pp` param with the `combined_redacted` format
+  (path only), and sets `Referrer-Policy: no-referrer` on `/hulkphone`; the relay's `callbakz.conf` does the
+  same via `map`/`log_format cb_redacted` (logs go to `docker logs` on the nginx-mailcow container, not a
+  file). Backups: `/root/vicidial.conf.bak.20261014`, `callbakz.conf.bak2.20261014`. Logs written before
+  this date still contain the old secrets, so rotate `phones.conf_secret`. **Re-apply on the relay after a rebuild.**
 - `callbakz.ddns.net` → `149.28.64.211`, a Vultr-hosted nginx box (historical, see update above). **Resolved, benign:** checked
   against the No-IP account that manages this hostname — "Oliver" was a previous install that used
   to sit behind this same DDNS name, and the same account later repointed it to this Vultr box. Same
