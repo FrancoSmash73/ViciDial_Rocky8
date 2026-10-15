@@ -166,6 +166,28 @@ SELECT campaign_id, dial_method, survey_method, survey_first_audio_file,
   am_message_exten, cpd_amd_action, dial_prefix FROM vicidial_campaigns;
 ```
 
+### Call-time guard — hard 9pm / state / bad-timezone dial block (added 2026-10-14)
+
+Why: on 2026-10-02 WASH auto-dialed 21:00-22:28 local because `local_call_time` had been saved as
+`24hours` (9/30). ViciDial treats call time as an ordinary campaign field and `AST_VDauto_dial.pl`
+never rechecks a lead's local time after it is in the hopper. `calltime-guard/Rocky10CallTime.pm`
+(installed to `/usr/local/share/perl5/5.40/`) is a pure function `rocky10_calltime_block($gmt,$state,$epoch)`
+that returns `''` (ok) or a reason. `AST_VDauto_dial.pl` calls it right after loading each lead from the
+hopper (marker `ROCKY10-CALLTIME-GUARD-v1`); on a block it deletes the hopper row, skips the lead and
+appends to `/var/log/astguiclient/VDAD_CALLTIME_BLOCK.<date>`. Rules live in CODE, not the admin UI:
+- company window 09:00-21:00 local; a state's own stricter window is intersected, never widened
+  (AL/FL/LA/MA/MD/MS/OK/WA/WY end 20:00, IN/NV/UT 09-20, ME 09-17, RI 09-18 + Sat 10-17, Sun closed in
+  AL/LA/MS/SD/RI, TX Sun from 12:00, PA Sun from 13:30, KY opens 10:00 — copied from this box's
+  `vicidial_state_call_times`);
+- 2-minute safety margin off the end of every window (ringing follows the dial);
+- `gmt_offset_now` outside -10..-4 (or non-numeric) = BAD_TZ, blocked;
+- a lead with no/unknown state is NOT blocked: it gets the 09:00-21:00 default (~90k leads have no state).
+Survives upgrades: `vicidial-rocky10-repatch` section 8 re-applies it (via `apply_vdauto_guard.py`),
+`perl -c`s the result, restores the old file if that fails, and restarts the dialer; verified by
+reverting the file by hand (re-patched within 10 s). Tests: `cd calltime-guard && perl -I. test_calltime.pl`
+(40 cases, no DB); `perl -I. dryrun_hopper.pl` shows what would be blocked in the live hopper right now.
+Covers AUTO-DIAL only so far; manual dial (`agc/vdc_db_query.php`) is a separate step.
+
 ### Force ViciDial config rebuild (after carrier/SIP changes)
 > **Does NOT apply to Oliver (verified 2026-10-14).** `servers.generate_vicidial_conf` is `N` here, so
 > `ADMIN_keepalive_ALL.pl` skips its rebuild block entirely: `rebuild_conf_files='Y'` is never consumed or

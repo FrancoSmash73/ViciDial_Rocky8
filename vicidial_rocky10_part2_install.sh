@@ -3167,6 +3167,17 @@ else
     warning "$SCRIPT_DIR/agc-security-patches not found - agc/ XSS patches will not be applied by the repatch script"
 fi
 
+# Stage the call-time guard (hard 9pm / state / bad-timezone dial block - see CLAUDE.md)
+log "Staging call-time guard files..."
+mkdir -p /usr/local/share/vicidial-rocky10/calltime-guard
+if [ -d "$SCRIPT_DIR/calltime-guard" ]; then
+    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/
+    chmod 755 /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdauto_guard.py
+    success "Staged call-time guard files to /usr/local/share/vicidial-rocky10/calltime-guard/"
+else
+    warning "$SCRIPT_DIR/calltime-guard not found - call-time guard will not be applied by the repatch script"
+fi
+
 log "Installing /usr/local/sbin/vicidial-rocky10-repatch..."
 cat > /usr/local/sbin/vicidial-rocky10-repatch << 'REPATCH_SCRIPT_EOF'
 #!/usr/bin/env bash
@@ -3429,6 +3440,43 @@ if [ -d "$AGC_PATCH_SRC" ]; then
     done
 else
     warning "agc/ security patch source ($AGC_PATCH_SRC) not found - skipping agc/ XSS patches"
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Call-time guard (ROCKY10-CALLTIME-GUARD-v1)
+#    Hard 9pm / per-state / bad-timezone dial block inside AST_VDauto_dial.pl,
+#    independent of every campaign call-time setting. install.pl / ViciDial
+#    upgrades overwrite AST_VDauto_dial.pl, which would silently remove it.
+#    Fail-safe: the patched file must pass `perl -c` or the previous file is
+#    restored. A freshly re-patched dialer is restarted (keepalive respawns it)
+#    because the running process still holds the old code.
+# ---------------------------------------------------------------------------
+CT_SRC="/usr/local/share/vicidial-rocky10/calltime-guard"
+CT_MARKER="ROCKY10-CALLTIME-GUARD-v1"
+CT_DIAL="/usr/share/astguiclient/AST_VDauto_dial.pl"
+if [ -f "$CT_SRC/Rocky10CallTime.pm" ] && [ -f "$CT_DIAL" ]; then
+    CT_PMDEST="/usr/local/share/perl5/5.40/Rocky10CallTime.pm"
+    mkdir -p "$(dirname "$CT_PMDEST")"
+    if ! cmp -s "$CT_SRC/Rocky10CallTime.pm" "$CT_PMDEST" 2>/dev/null; then
+        cp "$CT_SRC/Rocky10CallTime.pm" "$CT_PMDEST" && chmod 644 "$CT_PMDEST"
+        success "Rocky10CallTime.pm installed to $CT_PMDEST"
+        CHANGED=1
+    fi
+    if grep -qF "$CT_MARKER" "$CT_DIAL" 2>/dev/null; then
+        log "AST_VDauto_dial.pl: call-time guard already present"
+    elif [ -x "$CT_SRC/apply_vdauto_guard.py" ]; then
+        cp -p "$CT_DIAL" "$CT_DIAL.pre-calltime-guard"
+        if "$CT_SRC/apply_vdauto_guard.py" "$CT_DIAL" >/dev/null && perl -c "$CT_DIAL" >/dev/null 2>&1; then
+            success "AST_VDauto_dial.pl: call-time guard applied"
+            pkill -f '^/usr/bin/perl /usr/share/astguiclient/AST_VDauto_dial.pl' 2>/dev/null || true
+            CHANGED=1
+        else
+            cp -p "$CT_DIAL.pre-calltime-guard" "$CT_DIAL"
+            warning "AST_VDauto_dial.pl: call-time guard FAILED to apply (upstream changed?) - restored; DIALER IS UNGUARDED, fix manually"
+        fi
+    fi
+else
+    warning "call-time guard sources ($CT_SRC) not found - skipping"
 fi
 
 # ---------------------------------------------------------------------------
