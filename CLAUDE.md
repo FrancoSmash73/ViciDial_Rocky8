@@ -181,6 +181,15 @@ appends to `/var/log/astguiclient/VDAD_CALLTIME_BLOCK.<date>`. Rules live in COD
   `vicidial_state_call_times`);
 - 2-minute safety margin off the end of every window (ringing follows the dial);
 - `gmt_offset_now` outside -10..-4 (or non-numeric) = BAD_TZ, blocked;
+- **state/timezone cross-check (added 2026-10-14):** a lead whose `gmt_offset_now` is not a plausible
+  (DST-adjusted) offset for its own `state` — e.g. a TX lead tagged -10, an AR lead tagged Eastern — is
+  blocked as `TZ_MISMATCH(state gmt=..)` in both guards. Table = each state's zones, standard + daylight
+  (E -5/-4, C -6/-5, M -7/-6, P -8/-7; FL/IN/KY/MI/TN = E+C; KS/NE/ND/SD/TX = C+M; ID = M+P; AK -10..-8;
+  HI -10; PR/VI -4). About 18.8k of 748k stated leads (~2.5%, mostly AR- and HI-tagged leads with
+  mainland-area-code timezones) are affected; states not in the table are not checked.
+  Manual-dial functions now live in `calltime-guard/rocky10_calltime.inc.php` (staged to
+  `/usr/local/share/vicidial-rocky10/calltime-guard/`, `require_once`d from `vdc_db_query.php`) so rule changes
+  don't need a re-patch; if that include is missing the hook FAILS CLOSED (manual dials blocked except TEST1);
 - a lead with no/unknown state is NOT blocked: it gets the 09:00-21:00 default (~90k leads have no state).
 Survives upgrades: `vicidial-rocky10-repatch` section 8 re-applies it (via `apply_vdauto_guard.py`),
 `perl -c`s the result, restores the old file if that fails, and restarts the dialer; verified by

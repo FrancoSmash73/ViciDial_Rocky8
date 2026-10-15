@@ -3171,7 +3171,7 @@ fi
 log "Staging call-time guard files..."
 mkdir -p /usr/local/share/vicidial-rocky10/calltime-guard
 if [ -d "$SCRIPT_DIR/calltime-guard" ]; then
-    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/
+    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py "$SCRIPT_DIR"/calltime-guard/rocky10_calltime.inc.php /usr/local/share/vicidial-rocky10/calltime-guard/
     chmod 755 /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdauto_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdc_guard.py
     success "Staged call-time guard files to /usr/local/share/vicidial-rocky10/calltime-guard/"
 else

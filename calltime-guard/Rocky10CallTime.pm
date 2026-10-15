@@ -16,6 +16,9 @@ package Rocky10CallTime;
 #     (see %STATE below) is intersected with it, never widened.
 #   * A SAFETY_MIN-minute margin is removed from the END of the window because
 #     ringing time follows the dial.
+#   * State/timezone cross-check: a lead whose gmt_offset_now is not a plausible offset for
+#     its own state (e.g. a TX lead tagged Hawaii time) is blocked as TZ_MISMATCH.
+#     Offsets are DST-adjusted, so each zone lists standard and daylight values.
 #   * State missing / unknown falls back to the company window (NOT blocked).
 use strict;
 use warnings;
@@ -54,6 +57,28 @@ my %STATE = (
 	WY => [ 800, 2000, {} ],
 );
 
+
+# Plausible gmt_offset_now values per state (standard AND daylight offsets of every zone the
+# state touches). Anything else for that state is TZ_MISMATCH. States not listed are not checked.
+my %ZONE = ( E => [-5,-4], C => [-6,-5], M => [-7,-6], P => [-8,-7] );
+my %STATE_TZ;
+{
+	my %z = (
+		(map { $_ => 'E'   } qw(CT DC DE GA MA MD ME NH NJ NY NC OH PA RI SC VT VA WV)),
+		(map { $_ => 'EC'  } qw(FL IN KY MI TN)),
+		(map { $_ => 'C'   } qw(AL AR IL IA LA MN MS MO OK WI)),
+		(map { $_ => 'CM'  } qw(KS NE ND SD TX)),
+		(map { $_ => 'M'   } qw(AZ CO MT NM UT WY)),
+		(map { $_ => 'MP'  } qw(ID)),
+		(map { $_ => 'P'   } qw(CA NV OR WA)),
+	);
+	for my $st (keys %z) { $STATE_TZ{$st} = { map { ($_ => 1) } map { @{ $ZONE{$_} } } split //, $z{$st} }; }
+	$STATE_TZ{AK} = { map { ($_ => 1) } (-10, -9, -8) };   # incl. Aleutians
+	$STATE_TZ{HI} = { -10 => 1 };
+	$STATE_TZ{PR} = { -4 => 1 };
+	$STATE_TZ{VI} = { -4 => 1 };
+}
+
 sub _mins { my $hhmm = shift; return int($hhmm / 100) * 60 + ($hhmm % 100); }
 
 sub rocky10_calltime_block {
@@ -71,6 +96,11 @@ sub rocky10_calltime_block {
 	$state = '' unless defined $state;
 	$state =~ s/\s+//g;
 	$state = uc $state;
+
+	if (my $ok = $STATE_TZ{$state}) {
+		my $hit = 0; for my $o (keys %$ok) { if (abs($o - $gmt) < 0.01) { $hit = 1; last } }
+		return "TZ_MISMATCH($state gmt=$gmt)" unless $hit;
+	}
 
 	my $start = DEF_START;
 	my $stop  = DEF_STOP;
