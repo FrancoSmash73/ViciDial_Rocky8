@@ -3171,7 +3171,7 @@ fi
 log "Staging call-time guard files..."
 mkdir -p /usr/local/share/vicidial-rocky10/calltime-guard
 if [ -d "$SCRIPT_DIR/calltime-guard" ]; then
-    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py "$SCRIPT_DIR"/calltime-guard/rocky10_calltime.inc.php /usr/local/share/vicidial-rocky10/calltime-guard/
+    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py "$SCRIPT_DIR"/calltime-guard/rocky10_calltime.inc.php "$SCRIPT_DIR"/calltime-guard/calltime_triggers.sql /usr/local/share/vicidial-rocky10/calltime-guard/
     chmod 755 /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdauto_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdc_guard.py
     success "Staged call-time guard files to /usr/local/share/vicidial-rocky10/calltime-guard/"
 else
@@ -3495,6 +3495,24 @@ if [ -f "$CT_VDC" ] && [ -x "$CT_SRC/apply_vdc_guard.py" ]; then
             cp -p "$CT_VDC.pre-calltime-guard" "$CT_VDC"
             warning "vdc_db_query.php: manual call-time guard FAILED to apply - restored; MANUAL DIALING IS UNGUARDED, fix manually"
         fi
+    fi
+fi
+
+# 8c. Layer 2: database triggers that stop call-time settings being loosened (see CLAUDE.md).
+#     ViciDial SQL upgrades that DROP/recreate a table also drop its triggers; re-create if fewer
+#     than the expected 10 rocky10_* triggers exist. Needs DB root via the local socket.
+CT_SQL="$CT_SRC/calltime_triggers.sql"
+if [ -f "$CT_SQL" ] && command -v mysql &>/dev/null; then
+    CT_TRG=$(mysql -N -e "select count(*) from information_schema.triggers where trigger_schema='asterisk' and trigger_name like 'rocky10%'" 2>/dev/null)
+    if [ "${CT_TRG:-}" = "" ]; then
+        warning "call-time triggers: cannot query the database as root - skipping"
+    elif [ "$CT_TRG" -ge 10 ]; then
+        log "call-time triggers: $CT_TRG present"
+    elif mysql asterisk < "$CT_SQL" 2>/dev/null; then
+        success "call-time triggers re-created (had $CT_TRG of 10)"
+        CHANGED=1
+    else
+        warning "call-time triggers FAILED to install - call-time SETTINGS are unprotected"
     fi
 fi
 

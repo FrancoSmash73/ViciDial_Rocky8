@@ -206,6 +206,22 @@ doesn't exist is treated as BAD_TZ and blocked. **Campaign `TEST1` is exempt** f
 exemption. Re-applied by repatch section 8b (`apply_vdc_guard.py`), and the guarded file is also the staged
 copy in `agc-security-patches/vdc_db_query.php`, so an upgrade restore keeps it.
 
+**Layer 2 — triggers on the SETTINGS (added 2026-10-14)** — `calltime-guard/calltime_triggers.sql`
+(10 `rocky10_*` triggers + 4 functions in the `asterisk` DB, applied as DB root over the socket; idempotent).
+A save is refused with `ROCKY10 CALL-TIME GUARD: ...` if it would let any window start before 08:00 or end
+after 21:00 (per-day 0/0 = "use default" and 2400/2400 = "closed" stay allowed):
+`vicidial_call_times`, `vicidial_state_call_times`, `vicidial_call_time_holidays` (INSERT/UPDATE);
+`vicidial_campaigns` and `vicidial_lists` when `local_call_time` is inserted or CHANGED to a call time that is
+non-compliant, unknown, or references a non-compliant state rule. Unchanged `local_call_time` is never
+checked, so ViciDial's own constant campaign UPDATEs are unaffected. **Campaign `TEST1` (and its lists) is
+exempt.** The stock `24hours` row still exists (TEST1 uses it) but can't be re-saved or assigned elsewhere.
+Tests: create a scratch DB with copies of the 5 tables, load the SQL there, `./test_triggers.sh <scratchdb>`
+(27 cases; refuses to run against `asterisk`). `vicidial-rocky10-repatch` section 8c re-creates the triggers if
+fewer than 10 exist (e.g. a ViciDial SQL upgrade that recreated a table), but only runs when watched files change
+or by hand — layer 3 should also alarm on a missing trigger. MyISAM tables: BEFORE triggers abort the statement
+before any row is written, so a refused save changes nothing. A pre-trigger dump of the 5 tables is at
+`/root/calltime-tables-pre-triggers.sql`.
+
 ### Force ViciDial config rebuild (after carrier/SIP changes)
 > **Does NOT apply to Oliver (verified 2026-10-14).** `servers.generate_vicidial_conf` is `N` here, so
 > `ADMIN_keepalive_ALL.pl` skips its rebuild block entirely: `rebuild_conf_files='Y'` is never consumed or
