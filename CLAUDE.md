@@ -367,8 +367,11 @@ nft list ruleset | grep "saddr !="   # Must return nothing
 #                   makes "carrier looks healthy" misleading. Hit 2026-10-14 after the 2026-10-12
 #                   relay rebuild (new IP 216.194.173.220): manual dials from agent 10001 failed
 #                   with hangup cause 21 / CHANUNAVAIL; confirmed in `pjsip set logger host
-#                   88.151.128.22` capture. Still pending TBI authorization as of this note —
-#                   re-test an outbound dial after they confirm, don't assume it's fixed.
+#                   88.151.128.22` capture. **Resolved the same day:** TBI authorized
+#                   216.194.173.220 between 14:32 and 14:38 on 2026-10-14; a manual dial from
+#                   10001 at 14:38:45 then connected and ran 207 s (later test dials got
+#                   `183 Session Progress` from TBI instead of 403). Still re-test an outbound
+#                   dial after any future relay change — don't assume it carries over.
 #
 # DID4Sale (66.209.76.0/24) — CORRECTION 2026-10-14: the "decommissioned / no trace anywhere"
 # claim previously written here (2026-07-21) is wrong for this box. Live state: PJSIP endpoints
