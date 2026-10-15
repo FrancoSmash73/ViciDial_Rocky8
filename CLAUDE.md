@@ -58,7 +58,7 @@ hostnames were the real reachability path. Both have since moved off Oliver enti
   hands HulkPhone) AND the hand-managed Asterisk files `pjsip-hulkagents.conf` (10001-10011, gs102) and
   `pjsip.conf` (40004, a Yealink that must also be updated on the handset). `rebuild_conf_files`/keepalive
   does NOT touch those, so changing only the DB breaks registration. Rotate both together; 20002/88888 are
-  chan_sip (not loaded) and `callin` is EXTERNAL, so DB-only. Old/new values and backups: `/root/phone-rotation-20261014/` (root-only).
+  chan_sip (not loaded) and `callin` is EXTERNAL, so DB-only. The 2026-10-14 rotation working folder (old/new values) was deleted afterwards; current values are in the DB and those pjsip files.
 - `callbakz.ddns.net` → `149.28.64.211`, a Vultr-hosted nginx box (historical, see update above). **Resolved, benign:** checked
   against the No-IP account that manages this hostname — "Oliver" was a previous install that used
   to sit behind this same DDNS name, and the same account later repointed it to this Vultr box. Same
