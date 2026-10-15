@@ -142,6 +142,15 @@ Run it by hand any time with: `/usr/local/sbin/vicidial-rocky10-repatch` (idempo
 safe to run repeatedly). Check `systemctl status vicidial-rocky10-repatch.path` if a
 patch ever seems to not have re-applied.
 
+### Call-time guard — no outbound dialing past the legal window (all new installs)
+
+Stock ViciDial lets any admin widen a campaign's calling window (e.g. `24hours`) and never rechecks a lead's
+local time once it is in the hopper — which is how a campaign ended up auto-dialing past 9 pm local. Part 2 now
+installs three independent layers (dial-time hard stop for auto *and* manual dialing, DB triggers that refuse
+widening the settings, and a per-minute watcher that e-mails root). Rules: 09:00–21:00 lead-local, stricter state
+windows, bad/implausible timezones blocked. Details, tests and the one site-specific knob (the exempt test
+campaign) are in [`calltime-guard/README.md`](calltime-guard/README.md).
+
 ---
 
 ## Architecture: Daemons vs Cron Jobs

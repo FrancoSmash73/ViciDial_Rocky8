@@ -3171,7 +3171,7 @@ fi
 log "Staging call-time guard files..."
 mkdir -p /usr/local/share/vicidial-rocky10/calltime-guard
 if [ -d "$SCRIPT_DIR/calltime-guard" ]; then
-    cp "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py "$SCRIPT_DIR"/calltime-guard/rocky10_calltime.inc.php "$SCRIPT_DIR"/calltime-guard/calltime_triggers.sql "$SCRIPT_DIR"/calltime-guard/vicidial-calltime-watch.pl /usr/local/share/vicidial-rocky10/calltime-guard/
+    cp -f "$SCRIPT_DIR"/calltime-guard/Rocky10CallTime.pm "$SCRIPT_DIR"/calltime-guard/apply_vdauto_guard.py "$SCRIPT_DIR"/calltime-guard/apply_vdc_guard.py "$SCRIPT_DIR"/calltime-guard/rocky10_calltime.inc.php "$SCRIPT_DIR"/calltime-guard/calltime_triggers.sql "$SCRIPT_DIR"/calltime-guard/vicidial-calltime-watch.pl /usr/local/share/vicidial-rocky10/calltime-guard/
     chmod 755 /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdauto_guard.py /usr/local/share/vicidial-rocky10/calltime-guard/apply_vdc_guard.py
     success "Staged call-time guard files to /usr/local/share/vicidial-rocky10/calltime-guard/"
     # Layer 3: alerting watcher + 1-minute systemd timer (mails root on late calls / protection drift)
@@ -3654,6 +3654,28 @@ if systemctl is-active --quiet vicidial-keepalive.timer; then
     success "Systemd keepalive timer is active"
 else
     warning "Keepalive timer not active - run: systemctl start vicidial-keepalive.timer"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Check the call-time guard (hard 9pm / state / bad-timezone block)
+if grep -qF ROCKY10-CALLTIME-GUARD-v1 /usr/share/astguiclient/AST_VDauto_dial.pl 2>/dev/null \
+   && grep -qF ROCKY10-CALLTIME-GUARD-v1 /var/www/html/agc/vdc_db_query.php 2>/dev/null; then
+    success "Call-time guard present in AST_VDauto_dial.pl and vdc_db_query.php"
+else
+    warning "Call-time guard NOT applied - run /usr/local/sbin/vicidial-rocky10-repatch and check its output"
+    WARNINGS=$((WARNINGS + 1))
+fi
+CT_TRG_N=$(mysql -N -e "select count(*) from information_schema.triggers where trigger_schema='asterisk' and trigger_name like 'rocky10%'" 2>/dev/null || echo 0)
+if [ "${CT_TRG_N:-0}" -ge 10 ]; then
+    success "Call-time guard DB triggers present ($CT_TRG_N)"
+else
+    warning "Call-time guard DB triggers missing (${CT_TRG_N:-0} of 10) - run /usr/local/sbin/vicidial-rocky10-repatch"
+    WARNINGS=$((WARNINGS + 1))
+fi
+if systemctl is-active --quiet vicidial-calltime-watch.timer; then
+    success "Call-time watcher timer is active"
+else
+    warning "Call-time watcher timer not active - run: systemctl enable --now vicidial-calltime-watch.timer"
     WARNINGS=$((WARNINGS + 1))
 fi
 
