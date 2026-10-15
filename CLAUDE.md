@@ -167,6 +167,16 @@ SELECT campaign_id, dial_method, survey_method, survey_first_audio_file,
 ```
 
 ### Force ViciDial config rebuild (after carrier/SIP changes)
+> **Does NOT apply to Oliver (verified 2026-10-14).** `servers.generate_vicidial_conf` is `N` here, so
+> `ADMIN_keepalive_ALL.pl` skips its rebuild block entirely: `rebuild_conf_files='Y'` is never consumed or
+> cleared (a stale `Y` just sits there; it was reset to `N`), and `--force` regenerates nothing. Live
+> PJSIP/SIP config is hand-managed (`pjsip-hulkagents.conf`, `pjsip.conf`, `pjsip-carriers.conf`,
+> `pjsip-hardware-phones.conf`): edit those and `asterisk -rx "module reload res_pjsip.so"`. Do not flip
+> `generate_vicidial_conf` to `Y` without review: it would overwrite the immutable
+> `extensions-vicidial.conf` and the generated pjsip/sip files. The snippet below is for boxes that do
+> generate their config. The same caveat applies to the `rebuild_conf_files` steps in the WebRTC crackle and
+> carrier sections.
+
 ```bash
 perl /usr/share/astguiclient/ADMIN_keepalive_ALL.pl --force
 ```
