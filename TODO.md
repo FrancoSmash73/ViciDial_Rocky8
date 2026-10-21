@@ -44,13 +44,6 @@ infra work, not a quick patch. Could be characterized further with a live packet
 (`tcpdump` on the RTP port range during a fresh test call) if worth prioritizing.
 
 ## Coordination with the Oliver-side session
-- A peer Claude session (`bridge:session_014YwSvo8YNnCy3oJkHjSMyv`, working on the "Oliver"
-  server) asked to have its SSH public key added to Manny's `root/.ssh/authorized_keys` so it can
-  SSH in going forward. Frank approved this in chat, but the auto-mode permission classifier
-  blocked the write twice (even after explicit chat approval) — needs either Frank to add it
-  manually, or a standing permission rule for this host. Key to add if resuming this:
-  `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ1f7VcuCOEvbOSb0OsDM7G62vAvyEpTUtCy9IuMcLpa
-  campaignvoiceservices-server`
 - That session was last told (before tonight's testing) that the AGENTDIRECT/blind-transfer
   situation was still being worked out — worth sending it an updated status once this is pushed,
   since it may have made its own progress on Oliver in parallel (per the established

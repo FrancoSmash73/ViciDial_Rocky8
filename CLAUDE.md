@@ -22,8 +22,8 @@ elsewhere, it isn't this server.
 is now `187.189.34.192`, not `104.207.140.83` — it sits behind CGNAT (private LAN IP
 `192.168.100.14`), so its ISP-facing address was never directly reachable inbound anyway; the DDNS
 hostnames were the real reachability path. Both have since moved off Oliver entirely:
-- `dialengine.ddns.net` → `45.63.17.128` (the new vicidial-rocky10 server being built — intentional,
-  confirmed by the user).
+- `dialengine.ddns.net` → `45.63.17.128` (a second server, since decommissioned — no longer available
+  as of 2026-10-21; treat this hostname as dead).
 - **Update 2026-10-13:** the relay VPS moved again. The Vultr box (`149.28.64.211`) died and the
   relay was rebuilt 2026-10-12 on an InMotion Alma 9 VPS, **`216.194.173.220`** — which is what
   `callbakz.ddns.net` resolves to now and what `wg0` points at (`/etc/wireguard/wg0.conf`,
@@ -350,8 +350,8 @@ asterisk -rx "module show like res_pjsip_transport_websocket"
 
 ### WebRTC agent phones — crackly audio from opus↔8kHz ConfBridge transcoding
 
-Symptom: a `PJSIP_WEBRTC`-template agent phone (e.g. extension 20001, first hit on the
-vicidial-rocky10 box "Manny" 2026-09-06) sounds clean while alone in the agent ConfBridge (hearing
+Symptom: a `PJSIP_WEBRTC`-template agent phone (e.g. extension 20001, first hit on a second,
+now-decommissioned vicidial-rocky10 box, 2026-09-06) sounds clean while alone in the agent ConfBridge (hearing
 the "you are the only participant" prompt) but goes crackly/choppy the moment a second leg
 (customer call, PSTN test call, etc.) actually connects and real two-way audio starts.
 
@@ -377,7 +377,7 @@ perl /usr/share/astguiclient/ADMIN_keepalive_ALL.pl --force
 asterisk -rx "pjsip show endpoint 20001" | grep "^ allow"   # should show only (ulaw)
 ```
 
-As of 2026-09-06 this fix is applied **only to extension 20001** on Manny. Extensions 20002–20010
+As of 2026-09-06 this fix is applied **only to extension 20001** on that box. Extensions 20002–20010
 (created the same day, same `PJSIP_WEBRTC` template) still allow `opus|ulaw` and will likely hit
 the same crackle once they're used for real calls — deliberately left as-is per user request rather
 than pre-emptively patched. If/when the same symptom shows up on any of them (or a new WebRTC
@@ -533,7 +533,7 @@ action = nftables-allports[name=asterisk]
 exist at that point. fail2ban tolerates *some* missing `logpath` entries per jail, but if *all*
 of a jail's entries are missing it throws `Have not found any log file for asterisk jail` and
 `fail2ban-server` exits 255 — **taking down the entire service**, not just that jail, with no
-auto-restart (hit on the 45.63.17.128 install: down for 4h45m until manually restarted; same
+auto-restart (hit on a second install, since decommissioned: down for 4h45m until manually restarted; same
 failure was hit earlier on Oliver during Part 1 and worked around ad hoc at the time). Part 1 now
 `touch`es both placeholder files before fail2ban ever starts. If this ever resurfaces (e.g. a
 manual fail2ban reinstall skips that step): `mkdir -p /var/log/asterisk && touch
