@@ -1,0 +1,50 @@
+--- a/etc/httpd/conf.d/ssl.conf	2026-08-19 17:00:00.000000000 -0700
++++ b/etc/httpd/conf.d/ssl.conf	2026-10-22 17:48:45.823795425 -0700
+@@ -41,12 +41,18 @@
+ 
+ # General setup for the virtual host, inherited from global configuration
+ #DocumentRoot "/var/www/html"
+-#ServerName www.example.com:443
++ServerName campaignvoiceservices.com:443
++ServerAlias www.campaignvoiceservices.com
++DocumentRoot /var/www/html/campaignvoiceservices
++Include /etc/httpd/vicidial-common.inc
++SetEnvIfExpr "%{QUERY_STRING} =~ /(^|&)([A-Za-z_]*(pass|pw|secret)[A-Za-z_]*|pp)=/i || %{HTTP_REFERER} =~ /[?&]([A-Za-z_]*(pass|pw|secret)[A-Za-z_]*|pp)=/i" cred_in_url
++CustomLog /var/log/httpd/vicidial_ssl_access.log combined env=!cred_in_url
++CustomLog /var/log/httpd/vicidial_ssl_access.log combined_redacted env=cred_in_url
+ 
+ # Use separate log files for the SSL virtual host; note that LogLevel
+ # is not inherited from httpd.conf.
+ ErrorLog logs/ssl_error_log
+-TransferLog logs/ssl_access_log
++#TransferLog logs/ssl_access_log  # disabled: logged unredacted query strings (passwords); see vicidial_ssl_access.log
+ LogLevel warn
+ 
+ #   SSL Engine Switch:
+@@ -82,7 +88,7 @@
+ #   Some ECC cipher suites (http://www.ietf.org/rfc/rfc4492.txt)
+ #   require an ECC certificate which can also be configured in
+ #   parallel.
+-SSLCertificateFile /etc/pki/tls/certs/localhost.crt
++SSLCertificateFile /etc/letsencrypt/live/campaignvoiceservices.com/fullchain.pem
+ 
+ #   Server Private Key:
+ #   If the key is not combined with the certificate, use this
+@@ -90,7 +96,7 @@
+ #   you've both a RSA and a DSA private key you can configure
+ #   both in parallel (to also allow the use of DSA ciphers, etc.)
+ #   ECC keys, when in use, can also be configured in parallel
+-SSLCertificateKeyFile /etc/pki/tls/private/localhost.key
++SSLCertificateKeyFile /etc/letsencrypt/live/campaignvoiceservices.com/privkey.pem
+ 
+ #   Server Certificate Chain:
+ #   Point SSLCertificateChainFile at a file containing the
+@@ -197,7 +203,7 @@
+ #   The home of a custom SSL log file. Use this when you want a
+ #   compact non-error SSL logfile on a virtual host basis.
+ CustomLog logs/ssl_request_log \
+-          "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x \"%r\" %b"
++          "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x \"%r\" %b" env=!cred_in_url
+ 
+ </VirtualHost>
+ 
