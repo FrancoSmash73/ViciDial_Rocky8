@@ -593,6 +593,33 @@ same real liveness check as the Asterisk screen session: `ss -ulnp | grep 5060` 
 
 ---
 
+## Apache / HTTPS (changed 2026-10-22)
+
+- **PHP:** patched to 8.3.36 on 2026-10-22 for PHP2Shell (CVE-2026-109618/109619, unauthenticated RCE,
+  exploited in the wild; fixed in 8.5.12/8.4.27/8.3.36/8.2.35). Logs checked first — no crashes, OOM,
+  or new `.php` files. Update with `dnf upgrade 'php*' && systemctl restart php-fpm httpd`. The relay
+  VPS (`216.194.173.220`) runs no PHP.
+- **:443 now serves ViciDial.** `campaignvoiceservices.com` + `www` have a real Let's Encrypt cert
+  (`--cert-name campaignvoiceservices.com`, webroot `/var/www/html/campaignvoiceservices`, expires
+  2027-01-20, auto-renews; the deploy hook `vicidial-reload-services.sh` reloads httpd). Before this,
+  :443 used the self-signed `localhost` cert, which caused the `AH01909 ... does NOT include an ID` warning.
+  `callbakz.ddns.net` is deliberately NOT on it: it resolves to the relay's nginx, so HTTP-01 can't
+  validate from Oliver.
+- **Shared config:** the Alias/Directory blocks (`/vicidial`, `/agc`, `/hulkphone`, `/crm`, `/portal`)
+  live in `/etc/httpd/vicidial-common.inc`, `Include`d by the :80 vhost (`conf.d/vicidial.conf`) and the
+  :443 vhost (`conf.d/ssl.conf`). Edit the `.inc` once, not both vhosts. Reference copies and the
+  `ssl.conf` diff are in `configs/apache/` (not deployed by any install script — Part 4 only swaps
+  cert paths in stock `ssl.conf`).
+- **Credential-leak trap in `ssl.conf`:** stock `TransferLog` and `ssl_request_log` log the full
+  request line, including `phone_pass`/`VD_pass`/`pp` GET params. `TransferLog` is disabled and
+  `ssl_request_log` is `env=!cred_in_url`; HTTPS traffic logs to `vicidial_ssl_access.log` with the
+  same redaction as :80. Don't restore the stock log lines when reinstalling/updating `ssl.conf`.
+- **The agent path still uses :80.** The relay's nginx proxies to Apache at `10.0.0.2:80`; nothing was
+  changed there and :80 is not redirected to HTTPS (agents/integrations may rely on plain HTTP).
+  Backups: `/root/ssl.conf.bak-20261022`, `/root/vicidial.conf.bak-20261022`.
+
+---
+
 ## Empire IVR
 
 - **DID:** `6088091363` → context `empire-ivr` in `/etc/asterisk/extensions-empire-ivr.conf`
