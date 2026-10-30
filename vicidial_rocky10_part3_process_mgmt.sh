@@ -674,13 +674,18 @@ else
 fi
 
 ################################################################################
-# STEP G0: SCREEN DIRECTORY FIX (Rocky Linux 10 reboot bug)
+# STEP G0: SCREEN DIRECTORY FIX (reboot-safe permissions)
 ################################################################################
 
-log "Fixing /run/screen permissions for Rocky Linux 10..."
-echo "d /run/screen 1777 root root -" > /etc/tmpfiles.d/screen.conf
+# Rocky 8: screen 4.6 is setgid "screen" and requires /run/screen to be
+# exactly 0775 root:screen (Rocky 10's screen 5 wanted 1777, which breaks it).
+log "Fixing /run/screen permissions for Rocky Linux 8..."
+SCREEN_GROUP="$(stat -c %G "$(command -v screen)" 2>/dev/null || echo root)"
+rm -f /etc/tmpfiles.d/screen-fix.conf
+echo "d /run/screen 0775 root $SCREEN_GROUP -" > /etc/tmpfiles.d/screen.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/screen.conf
-chmod 1777 /run/screen 2>/dev/null || true
+chown root:"$SCREEN_GROUP" /run/screen 2>/dev/null || true
+chmod 0775 /run/screen 2>/dev/null || true
 success "/run/screen configured for correct permissions on every boot"
 
 # ---------------------------------------------------------------------------
