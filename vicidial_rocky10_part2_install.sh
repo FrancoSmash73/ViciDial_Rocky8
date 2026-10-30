@@ -580,7 +580,7 @@ log "Installing kernel-devel for the running kernel ($(uname -r))..."
 dnf install -y "kernel-devel-$(uname -r)" || error "kernel-devel-$(uname -r) not available - reboot into the newest kernel and re-run Part 2"
 fi
 
-info "Cloning DAHDI Linux 3.4.0 (kernel 4.18 / EL8 + 6.12 compatible, branch ${DAHDI_LINUX_BRANCH})..."
+info "Cloning DAHDI Linux 3.4.0 (branch ${DAHDI_LINUX_BRANCH}; EL8 patch applied after clone)..."
 if ! git clone --branch "$DAHDI_LINUX_BRANCH" https://github.com/FrancoSmash73/dahdi-linux-3.4.0.git; then
 error "Failed to clone DAHDI Linux repo. Check network connectivity."
 fi
@@ -590,6 +590,19 @@ error "DAHDI Linux directory not found after clone"
 fi
 
 cd dahdi-linux-3.4.0 || error "Failed to enter DAHDI Linux directory"
+
+# Rocky 8 only: the shared dahdi-linux repo targets kernel 6.12 and calls
+# timer_container_of(), which Rocky 8's 4.18 kernel doesn't have. Apply the
+# EL8 compat patch from THIS repo; the dahdi-linux repo itself stays as-is.
+DAHDI_EL8_PATCH="$SCRIPT_DIR/patches/dahdi-linux-el8-timer-compat.patch"
+if grep -q "define timer_container_of" include/dahdi/kernel.h; then
+info "DAHDI EL8 timer compat already present"
+elif [ -f "$DAHDI_EL8_PATCH" ]; then
+patch -p1 < "$DAHDI_EL8_PATCH" || error "Failed to apply $DAHDI_EL8_PATCH"
+success "Applied DAHDI EL8 timer compat patch"
+else
+error "Missing $DAHDI_EL8_PATCH - run Part 2 from inside the ViciDial_Rocky8 checkout"
+fi
 
 # OPTIMIZATION: Get make jobs for parallel compilation
 MAKE_JOBS=$(get_make_jobs)
