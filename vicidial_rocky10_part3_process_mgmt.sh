@@ -708,7 +708,7 @@ HEARTBEAT_SCRIPT="/usr/local/bin/vicidial_server_updater_heartbeat.sh"
 HEARTBEAT_SVC="vicidial-heartbeat.service"
 HEARTBEAT_DEPLOYED=0
 
-if screen -list 2/dev/null | grep -q "asterisk" || pgrep -x "asterisk" > /dev/null 2>&1; then
+if screen -list 2>/dev/null | grep -q "asterisk" || pgrep -x "asterisk" > /dev/null 2>&1; then
     info "Asterisk is active on this server - heartbeat not needed, skipping"
 else
     log "Asterisk is NOT running on this server (DB/Web role detected)"
@@ -719,7 +719,7 @@ else
     DB_HOST=$(grep    '^VARDB_server '  /etc/astguiclient.conf | awk '{print $3}')
     DB_USER=$(grep    '^VARDB_user '    /etc/astguiclient.conf | awk '{print $3}')
     DB_PASS=$(grep    '^VARDB_pass '    /etc/astguiclient.conf | awk '{print $3}')
-    DB_NAME=$(grep    '^VARDB_database '/etc/astguiclient.conf | awk '{print $3}')
+    DB_NAME=$(grep    '^VARDB_database ' /etc/astguiclient.conf | awk '{print $3}')
 
     if [ -z "$SERVER_IP" ] || [ -z "$DB_HOST" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
         warning "Could not read all DB credentials from /etc/astguiclient.conf - skipping heartbeat"
