@@ -17,7 +17,7 @@ Script file names still say `rocky10`; they target Rocky 8.10.
 | Perl module dir | `/usr/local/share/perl5/5.40` | `$Config{installsitelib}` = `/usr/local/share/perl5` |
 | Python 3 | preinstalled | `dnf install python3` (Part 1) |
 | Asterisk | 18.21.0-vici | 20.18.2 plain upstream (matches Oliver) |
-| DAHDI | kernel 6.12 | same dahdi-linux repo, plus `patches/dahdi-linux-el8-timer-compat.patch` applied by Part 2 (kernel 4.18) |
+| DAHDI | kernel 6.12 | same dahdi-linux repo, plus `patches/dahdi-linux-el8-compat.patch` applied by Part 2 (kernel 4.18) |
 
 **Before Part 1:** run `bash rocky8_package_check.sh` on the new box. It prints
 only the packages that are missing, in one short list.

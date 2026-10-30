@@ -591,17 +591,17 @@ fi
 
 cd dahdi-linux-3.4.0 || error "Failed to enter DAHDI Linux directory"
 
-# Rocky 8 only: the shared dahdi-linux repo targets kernel 6.12 and calls
-# timer_container_of(), which Rocky 8's 4.18 kernel doesn't have. Apply the
-# EL8 compat patch from THIS repo; the dahdi-linux repo itself stays as-is.
-DAHDI_EL8_PATCH="$SCRIPT_DIR/patches/dahdi-linux-el8-timer-compat.patch"
-if grep -q "define timer_container_of" include/dahdi/kernel.h; then
-info "DAHDI EL8 timer compat already present"
-elif [ -f "$DAHDI_EL8_PATCH" ]; then
-patch -p1 < "$DAHDI_EL8_PATCH" || error "Failed to apply $DAHDI_EL8_PATCH"
-success "Applied DAHDI EL8 timer compat patch"
+# Rocky 8 only: the shared dahdi-linux repo targets kernel 6.12. Rocky 8's
+# 4.18 kernel lacks timer_container_of() and has RHEL's backported 3-argument
+# netif_napi_add(). Apply the EL8 compat patch from THIS repo; the dahdi-linux
+# repo itself stays as-is.
+DAHDI_EL8_PATCH="$SCRIPT_DIR/patches/dahdi-linux-el8-compat.patch"
+[ -f "$DAHDI_EL8_PATCH" ] || error "Missing $DAHDI_EL8_PATCH - run Part 2 from inside the ViciDial_Rocky8 checkout"
+if patch -p1 -R -s -f --dry-run < "$DAHDI_EL8_PATCH" >/dev/null 2>&1; then
+info "DAHDI EL8 compat patch already applied"
 else
-error "Missing $DAHDI_EL8_PATCH - run Part 2 from inside the ViciDial_Rocky8 checkout"
+patch -p1 -N < "$DAHDI_EL8_PATCH" || error "Failed to apply $DAHDI_EL8_PATCH"
+success "Applied DAHDI EL8 compat patch"
 fi
 
 # OPTIMIZATION: Get make jobs for parallel compilation
