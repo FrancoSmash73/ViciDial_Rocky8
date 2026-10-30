@@ -97,13 +97,13 @@ if ($DB eq 'asterisk') {
 	for my $f ('/usr/share/astguiclient/AST_VDauto_dial.pl', '/var/www/html/agc/vdc_db_query.php') {
 		push @problems, "code guard marker missing in $f" unless slurp($f) =~ /\Q$M\E/;
 	}
-	for my $f ('/usr/local/share/perl5/5.40/Rocky10CallTime.pm', '/usr/local/share/vicidial-rocky10/calltime-guard/rocky10_calltime.inc.php') {
+	for my $f ($INC{'Rocky10CallTime.pm'}, '/usr/local/share/vicidial-rocky10/calltime-guard/rocky10_calltime.inc.php') {
 		push @problems, "guard file missing: $f" unless -s $f;
 	}
 	my $pid = `pgrep -f '^/usr/bin/perl /usr/share/astguiclient/AST_VDauto_dial.pl' | head -1`; chomp $pid;
 	if ($pid =~ /^\d+$/) {
 		my $started = (stat("/proc/$pid"))[9];                   # proc dir mtime ~= process start
-		for my $f ('/usr/share/astguiclient/AST_VDauto_dial.pl', '/usr/local/share/perl5/5.40/Rocky10CallTime.pm') {
+		for my $f ('/usr/share/astguiclient/AST_VDauto_dial.pl', $INC{'Rocky10CallTime.pm'}) {
 			my $mt = (stat $f)[9] // 0;
 			push @problems, "running dialer (pid $pid) started before $f was last changed - restart it so the new code is loaded" if $mt > $started + 5;
 		}

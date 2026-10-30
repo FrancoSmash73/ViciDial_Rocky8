@@ -1,15 +1,16 @@
 #!/bin/bash
 ################################################################################
 # VICIDIAL ULTIMATE INSTALLATION - PART 2: v11.2
-# VoIP Stack: DAHDI 3.4.0, LibPRI 1.6.1, Asterisk 18 (ViciDial-patched)
+# VoIP Stack: DAHDI 3.4.0, LibPRI 1.6.1, Asterisk 20.18.2 (plain upstream)
 # ViciDial + ConfBridge + CRITICAL Process Management
 ################################################################################
 # Date: 2026-02-16
 # Updated: 2026-02-25
 # Author: FrancoSmash73 + Claude (Anthropic)
-# Target: Rocky Linux 10.x / AlmaLinux 10.x
-# Asterisk: 18.21.0-vici (from download.vicidial.com) with fallback to
-#           plain 18.26.4 + manual ViciDial patches from asterisk.org
+# Target: Rocky Linux 8.10 / AlmaLinux 8.10 (ported from the Rocky 10 build)
+# Asterisk: 20.18.2 -- PLAIN upstream from asterisk.org, matching the
+#           production box (Oliver). ViciDial publishes no 20.x-vici tarball
+#           and no Asterisk-20 patch set.
 # DAHDI: 3.4.0 (Patched Linux + Patched Tools from FrancoSmash73)
 #
 # NEW IN v11.2 (2026-02-25):
@@ -340,7 +341,7 @@ section "INITIALIZING VICIDIAL ULTIMATE PART 2 INSTALLATION v11.2"
 VERSION="11.0"
 INSTALL_MARKER="/root/.vicidial_part2_progress"
 
-# Load shared version config (ASTERISK_VICI_VERSION) — falls back to a
+# Load shared version config (ASTERISK_VERSION) — falls back to a
 # known-good default if this script was copied out on its own.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 if [ -f "$SCRIPT_DIR/configs/versions.conf" ]; then
@@ -348,9 +349,16 @@ if [ -f "$SCRIPT_DIR/configs/versions.conf" ]; then
     source "$SCRIPT_DIR/configs/versions.conf"
 else
     echo "[WARNING] configs/versions.conf not found — using built-in defaults" >&2
-    ASTERISK_VICI_VERSION="18.21.0-vici"
-    ASTERISK_PLAIN_VERSION="18.26.4"
+    ASTERISK_VERSION="20.18.2"
+    DAHDI_LINUX_BRANCH="master"
 fi
+ASTERISK_VERSION="${ASTERISK_VERSION:-20.18.2}"
+DAHDI_LINUX_BRANCH="${DAHDI_LINUX_BRANCH:-master}"
+
+# Site Perl library dir that's always on @INC. Rocky 8's Perl 5.26 uses
+# /usr/local/share/perl5 (no version folder); Rocky 10's 5.40 uses
+# /usr/local/share/perl5/5.40. Ask Perl rather than guessing.
+PERL_SITELIB="$(perl -MConfig -e 'print $Config{installsitelib}')"
 
 if [ ! -f "$INSTALL_MARKER" ]; then
 log "First run - creating install marker at $INSTALL_MARKER"
@@ -443,10 +451,10 @@ echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                                                              ║"
 echo "║        ViciDial ULTIMATE Installation - Part 2               ║"
-echo "║      VoIP Stack, Asterisk 18 (ViciDial-patched) + ConfBridge ║"
+echo "║      VoIP Stack, Asterisk 20 (plain upstream) + ConfBridge   ║"
 echo "║                                                              ║"
 echo "║             Version 11.0 FINAL                               ║"
-echo "║   Rocky Linux 10.x / AlmaLinux 10.x                        ║"
+echo "║   Rocky Linux 8.10 / AlmaLinux 8.10                        ║"
 echo "║                                                              ║"
 echo "║  ⭐ Process Locking: systemd timers + flock wrappers        ║"
 echo "║  ⭐ ZERO duplicate ADMIN_keepalive_ALL.pl processes         ║"
@@ -464,7 +472,7 @@ if [ "$EUID" -ne 0 ]; then
 error "Please run as root (use: sudo su -)"
 fi
 
-# OS check - supports both Rocky Linux and AlmaLinux 10.x
+# OS check - supports both Rocky Linux and AlmaLinux 8.10+
 if [ -f /etc/rocky-release ]; then
     OS_NAME="Rocky Linux"
     OS_RELEASE_FILE="/etc/rocky-release"
@@ -472,13 +480,13 @@ elif [ -f /etc/almalinux-release ]; then
     OS_NAME="AlmaLinux"
     OS_RELEASE_FILE="/etc/almalinux-release"
 else
-    error "This script requires Rocky Linux 10.x or AlmaLinux 10.x"
+    error "This script requires Rocky Linux 8.10 or AlmaLinux 8.10"
 fi
 
 OS_VERSION=$(grep -oP '\d+\.\d+' "$OS_RELEASE_FILE" | head -1)
 
-if [[ ! "$OS_VERSION" =~ ^10\. ]]; then
-    error "This script requires $OS_NAME 10.x. Detected: $OS_VERSION"
+if [[ ! "$OS_VERSION" =~ ^8\.([0-9]+)$ ]] || [ "${BASH_REMATCH[1]}" -lt 10 ]; then
+    error "This script requires $OS_NAME 8.10 or newer 8.x. Detected: $OS_VERSION"
 fi
 success "OS Check: $OS_NAME $OS_VERSION (supported)"
 
@@ -564,8 +572,16 @@ echo ""
 log "Cleaning previous DAHDI Linux installations..."
 rm -rf dahdi-linux-3.4.0
 
-info "Cloning DAHDI Linux 3.4.0 (Patched for kernel 6.12+)..."
-if ! git clone https://github.com/FrancoSmash73/dahdi-linux-3.4.0.git; then
+# DAHDI builds against the RUNNING kernel. A 'dnf update' in Part 1 can
+# install a newer kernel-devel than the kernel you're booted into; reboot
+# after Part 1, or install the matching headers here.
+if [ ! -d "/lib/modules/$(uname -r)/build" ]; then
+log "Installing kernel-devel for the running kernel ($(uname -r))..."
+dnf install -y "kernel-devel-$(uname -r)" || error "kernel-devel-$(uname -r) not available - reboot into the newest kernel and re-run Part 2"
+fi
+
+info "Cloning DAHDI Linux 3.4.0 (branch ${DAHDI_LINUX_BRANCH}; EL8 patch applied after clone)..."
+if ! git clone --branch "$DAHDI_LINUX_BRANCH" https://github.com/FrancoSmash73/dahdi-linux-3.4.0.git; then
 error "Failed to clone DAHDI Linux repo. Check network connectivity."
 fi
 
@@ -574,6 +590,19 @@ error "DAHDI Linux directory not found after clone"
 fi
 
 cd dahdi-linux-3.4.0 || error "Failed to enter DAHDI Linux directory"
+
+# Rocky 8 only: the shared dahdi-linux repo targets kernel 6.12 and calls
+# timer_container_of(), which Rocky 8's 4.18 kernel doesn't have. Apply the
+# EL8 compat patch from THIS repo; the dahdi-linux repo itself stays as-is.
+DAHDI_EL8_PATCH="$SCRIPT_DIR/patches/dahdi-linux-el8-timer-compat.patch"
+if grep -q "define timer_container_of" include/dahdi/kernel.h; then
+info "DAHDI EL8 timer compat already present"
+elif [ -f "$DAHDI_EL8_PATCH" ]; then
+patch -p1 < "$DAHDI_EL8_PATCH" || error "Failed to apply $DAHDI_EL8_PATCH"
+success "Applied DAHDI EL8 timer compat patch"
+else
+error "Missing $DAHDI_EL8_PATCH - run Part 2 from inside the ViciDial_Rocky8 checkout"
+fi
 
 # OPTIMIZATION: Get make jobs for parallel compilation
 MAKE_JOBS=$(get_make_jobs)
@@ -630,7 +659,7 @@ echo ""
 log "Cleaning previous DAHDI Tools installations..."
 rm -rf dahdi-tools-3.4.0
 
-info "Cloning DAHDI Tools 3.4.0 (Patched for Rocky Linux 10.x)..."
+info "Cloning DAHDI Tools 3.4.0 (pre-generated configure; do not autoreconf on Rocky 8)..."
 if ! git clone https://github.com/FrancoSmash73/dahdi-tools-3.4.0.git; then
 error "Failed to clone DAHDI Tools repo. Check network connectivity."
 fi
@@ -878,64 +907,48 @@ mark_step_complete "STEP_2"
 fi
 
 # ===========================================================================
-# STEP 3: DOWNLOAD & PATCH ASTERISK 18 (VICI)
+# STEP 3: DOWNLOAD ASTERISK 20 (PLAIN UPSTREAM)
 # ===========================================================================
-section "STEP 3/22: DOWNLOADING & PATCHING ASTERISK 18 (VICI)"
-check_step "STEP_3" "3/22" "Asterisk 18 Download & ViciDial Patch"
+section "STEP 3/22: DOWNLOADING ASTERISK ${ASTERISK_VERSION} (plain upstream)"
+check_step "STEP_3" "3/22" "Asterisk ${ASTERISK_VERSION} Download"
 
 if [ "$SKIP_STEP" = false ]; then
 mkdir -p /usr/src/asterisk
 cd /usr/src/asterisk
 
 AST_BUILD_DIR=""
-VICI_TARBALL="asterisk-${ASTERISK_VICI_VERSION}.tar.gz"
-PLAIN_TARBALL="asterisk-${ASTERISK_PLAIN_VERSION}.tar.gz"
-VICI_DIR="asterisk-${ASTERISK_VICI_VERSION}"
-PLAIN_DIR="asterisk-${ASTERISK_PLAIN_VERSION}"
+PLAIN_TARBALL="asterisk-${ASTERISK_VERSION}.tar.gz"
+PLAIN_DIR="asterisk-${ASTERISK_VERSION}"
 
-rm -rf "$VICI_TARBALL" "$VICI_DIR" "$PLAIN_TARBALL" "$PLAIN_DIR"
+rm -rf "$PLAIN_TARBALL" "$PLAIN_DIR"
 
-log "Phase 1: Trying $VICI_DIR from download.vicidial.com..."
+# ViciDial publishes NO pre-patched tarball for Asterisk 20 (the newest is
+# asterisk-18.21.0-vici) and no Asterisk-20 patch directory. Oliver runs
+# plain 20.18.2 with ConfBridge and no C-level patches; this mirrors it.
+# Current releases live in releases/, older ones move to old-releases/.
+log "Downloading plain asterisk-${ASTERISK_VERSION} from asterisk.org..."
 DOWNLOAD_OK=false
 for attempt in 1 2 3; do
 log "Download attempt $attempt/3..."
+for _ast_dir in releases old-releases; do
 if wget --tries=2 --timeout=60 -q --show-progress \
-"http://download.vicidial.com/required-apps/$VICI_TARBALL"; then
+"https://downloads.asterisk.org/pub/telephony/asterisk/${_ast_dir}/$PLAIN_TARBALL"; then
 DOWNLOAD_OK=true
-success "Downloaded $VICI_TARBALL"
-break
+success "Downloaded $PLAIN_TARBALL (${_ast_dir}/)"
+break 2
 fi
+done
 warning "Attempt $attempt failed"
 sleep 5
 done
 
-if [ "$DOWNLOAD_OK" = true ]; then
-log "Extracting $VICI_TARBALL..."
-tar -xzvf "$VICI_TARBALL"
-AST_BUILD_DIR="/usr/src/asterisk/$VICI_DIR"
-info "Using pre-patched ViciDial tarball: $VICI_DIR"
-else
-warning "ViciDial tarball unavailable. Falling back to plain $PLAIN_DIR + manual patches."
-log "Phase 2: Downloading plain $PLAIN_DIR from asterisk.org..."
-for attempt in 1 2 3; do
-log "Download attempt $attempt/3..."
-if wget --tries=2 --timeout=60 -q --show-progress \
-"https://downloads.asterisk.org/pub/telephony/asterisk/old-releases/$PLAIN_TARBALL"; then
-DOWNLOAD_OK=true
-success "Downloaded $PLAIN_TARBALL"
-break
-fi
-warning "Attempt $attempt failed"
-sleep 5
-done
 if [ "$DOWNLOAD_OK" = false ]; then
-error "Failed to download Asterisk from both ViciDial and asterisk.org. Check network."
+error "Failed to download $PLAIN_TARBALL from asterisk.org. Check network."
 fi
+
 log "Extracting $PLAIN_TARBALL..."
-tar -xzvf "$PLAIN_TARBALL"
+tar -xzf "$PLAIN_TARBALL"
 AST_BUILD_DIR="/usr/src/asterisk/$PLAIN_DIR"
-info "Using plain tarball: $PLAIN_DIR - ViciDial patches will be applied next"
-fi
 
 if [ ! -d "$AST_BUILD_DIR" ]; then
 error "Asterisk source directory not found after extraction: $AST_BUILD_DIR"
@@ -943,43 +956,14 @@ fi
 
 echo "AST_BUILD_DIR=$AST_BUILD_DIR" >> "$INSTALL_MARKER"
 
-cd "$AST_BUILD_DIR"
+# NO PATCHES. ViciDial's five Asterisk patches (amd_stats, iax_peer_status,
+# sip_peer_status, timeout_reset_dial_app, timeout_reset_dial_core) exist only
+# for Asterisk 18 and 404 under .../asterisk-patches/Asterisk-20/. Oliver runs
+# without them. If you rely on AMD statistics or ViciDial's dial-timeout
+# semantics, port those two yourself and test on a disposable VM first.
+log "Skipping ViciDial patches: none published for Asterisk 20"
 
-log "Downloading ViciDial Asterisk 18 patches from download.vicidial.com..."
-
-PATCH_BASE="http://download.vicidial.com/asterisk-patches/Asterisk-18"
-for patch_file in \
-amd_stats-18.patch \
-iax_peer_status-18.patch \
-sip_peer_status-18.patch \
-timeout_reset_dial_app-18.patch \
-timeout_reset_dial_core-18.patch; do
-if wget --tries=3 --timeout=30 -q "$PATCH_BASE/$patch_file" 2>/dev/null; then
-success "Downloaded: $patch_file"
-else
-warning "Could not download $patch_file (will skip patch)"
-fi
-done
-
-log "Downloading ConfBridge enter/leave sound headers..."
-cd apps/
-for hfile in enter.h leave.h; do
-if wget --tries=3 --timeout=30 -q "$PATCH_BASE/$hfile" 2>/dev/null; then
-success "Downloaded: $hfile"
-else
-warning "Could not download $hfile (ConfBridge sounds may be absent)"
-fi
-done
-cd ..
-
-log "Applying ViciDial patches (skipped silently if already applied)..."
-[ -f amd_stats-18.patch ]              && { patch -p0 --dry-run < amd_stats-18.patch              apps/app_amd.c      >/dev/n     ull 2>&1 && patch -p0 < amd_stats-18.patch              apps/app_amd.c      || warning "amd_stats patch: skipped (already applied      or hunk mismatch)"; }
-[ -f iax_peer_status-18.patch ]        && { patch -p0 --dry-run < iax_peer_status-18.patch        channels/chan_iax2.c >/dev/     null 2>&1 && patch -p0 < iax_peer_status-18.patch        channels/chan_iax2.c || warning "iax_peer_status patch: skipped"; }
-[ -f sip_peer_status-18.patch ]        && { patch -p0 --dry-run < sip_peer_status-18.patch        channels/chan_sip.c  >/dev/     null 2>&1 && patch -p0 < sip_peer_status-18.patch        channels/chan_sip.c  || warning "sip_peer_status patch: skipped"; }
-[ -f timeout_reset_dial_app-18.patch ] && { patch -p0 --dry-run < timeout_reset_dial_app-18.patch apps/app_dial.c     >/dev/n     ull 2>&1 && patch -p0 < timeout_reset_dial_app-18.patch apps/app_dial.c     || warning "timeout_reset_dial_app patch: skipped"; }
-[ -f timeout_reset_dial_core-18.patch ]&& { patch -p0 --dry-run < timeout_reset_dial_core-18.patch main/dial.c        >/dev/n     ull 2>&1 && patch -p0 < timeout_reset_dial_core-18.patch main/dial.c        || warning "timeout_reset_dial_core patch: skipped";      }
-
-success "Asterisk 18 source ready in: $AST_BUILD_DIR"
+success "Asterisk ${ASTERISK_VERSION} source ready in: $AST_BUILD_DIR"
 mark_step_complete "STEP_3"
 fi
 
@@ -992,7 +976,7 @@ check_step "STEP_4" "4/22" "Asterisk Compile & Install"
 if [ "$SKIP_STEP" = false ]; then
 AST_BUILD_DIR=$(grep "^AST_BUILD_DIR=" "$INSTALL_MARKER" 2>/dev/null | cut -d'=' -f2-)
 if [ -z "$AST_BUILD_DIR" ] || [ ! -d "$AST_BUILD_DIR" ]; then
-AST_BUILD_DIR=$(find /usr/src/asterisk -maxdepth 1 -type d -name 'asterisk-18*' | sort | tail -1)
+AST_BUILD_DIR=$(find /usr/src/asterisk -maxdepth 1 -type d -name "asterisk-${ASTERISK_VERSION}" | sort | tail -1)
 fi
 if [ -z "$AST_BUILD_DIR" ] || [ ! -d "$AST_BUILD_DIR" ]; then
 error "Asterisk source directory not found. Did Step 3 complete successfully?"
@@ -1077,7 +1061,7 @@ chown -R asterisk:asterisk /var/{lib,log,spool}/asterisk
 chown -R asterisk:asterisk /usr/lib64/asterisk
 
 ldconfig
-success "Asterisk 18 installed from: $AST_BUILD_DIR"
+success "Asterisk ${ASTERISK_VERSION} installed from: $AST_BUILD_DIR"
 mark_step_complete "STEP_4"
 fi
 
@@ -1220,7 +1204,7 @@ if ! mysql -u root -p"${MYSQL_ROOT_PASSWORD}" asterisk <<EOF
 ALTER TABLE phones ALTER template_id SET DEFAULT '';
 
 -- Set correct Asterisk version (detected from source dir name)
-UPDATE servers SET asterisk_version='18.X-vici';
+UPDATE servers SET asterisk_version='${ASTERISK_VERSION}';
 EOF
 then
 warning "Database tuning had errors (may not be critical)"
@@ -1422,7 +1406,7 @@ mark_step_complete "STEP_7"
 fi
 
 # ---------------------------------------------------------------------------
-# FIX: Copy ViciDial Perl modules into system Perl path (Rocky Linux 10 / Perl 5.40)
+# FIX: Copy ViciDial Perl modules into system Perl path (site lib from $Config{installsitelib})
 # The sync script is installed later (before CLEANUP) and kept at
 # /usr/local/sbin/vicidial-sync-perl-modules so it can be re-run manually
 # after any ViciDial update. A systemd path unit auto-triggers it whenever
@@ -1433,8 +1417,7 @@ log "Syncing ViciDial Perl modules into system Perl path..."
 if perl -e 'use Asterisk::AGI; print "ok"' 2>/dev/null | grep -q ok; then
     success "Asterisk::AGI already in system Perl path"
 else
-    PERL_VER=$(perl -e 'printf "%vd", $^V' | cut -d. -f1,2)
-    PERL_DEST="/usr/local/share/perl5/${PERL_VER}"
+    PERL_DEST="$PERL_SITELIB"
     if [ ! -d /usr/share/astguiclient/libs/Asterisk ]; then
         warning "astguiclient libs not found - skipping Perl module copy (install.pl may not have run)"
     else
@@ -3081,8 +3064,9 @@ cat > /usr/local/sbin/vicidial-sync-perl-modules << 'SYNC_SCRIPT'
 set -euo pipefail
 
 LIBS_DIR="/usr/share/astguiclient/libs"
-PERL_VER=$(perl -e 'printf "%vd", $^V' | cut -d. -f1,2)
-PERL_DEST="/usr/local/share/perl5/${PERL_VER}"
+# Site Perl dir that's on @INC: /usr/local/share/perl5 on Rocky 8 (Perl 5.26),
+# /usr/local/share/perl5/5.40 on Rocky 10.
+PERL_DEST="$(perl -MConfig -e 'print $Config{installsitelib}')"
 
 if [ ! -d "${LIBS_DIR}/Asterisk" ]; then
     echo "ERROR: ${LIBS_DIR}/Asterisk not found — has install.pl run?" >&2
@@ -3282,9 +3266,9 @@ done
 #    escape_digits -> Asterisk returns 520, survey audio never plays
 #    (SVYHU calls, length_in_sec=0).
 # ---------------------------------------------------------------------------
-PERL_VER=$(perl -e 'printf "%vd", $^V' | cut -d. -f1,2)
+PERL_SITELIB="$(perl -MConfig -e 'print $Config{installsitelib}')"
 for f in \
-    "/usr/local/share/perl5/${PERL_VER}/Asterisk/AGI.pm" \
+    "${PERL_SITELIB}/Asterisk/AGI.pm" \
     /usr/share/astguiclient/libs/Asterisk/AGI.pm; do
     [ -f "$f" ] || { warning "$f not found - skipping"; continue; }
     if grep -qF "digits eq ''" "$f" 2>/dev/null; then
@@ -3460,7 +3444,7 @@ CT_SRC="/usr/local/share/vicidial-rocky10/calltime-guard"
 CT_MARKER="ROCKY10-CALLTIME-GUARD-v1"
 CT_DIAL="/usr/share/astguiclient/AST_VDauto_dial.pl"
 if [ -f "$CT_SRC/Rocky10CallTime.pm" ] && [ -f "$CT_DIAL" ]; then
-    CT_PMDEST="/usr/local/share/perl5/5.40/Rocky10CallTime.pm"
+    CT_PMDEST="$(perl -MConfig -e 'print $Config{installsitelib}')/Rocky10CallTime.pm"
     mkdir -p "$(dirname "$CT_PMDEST")"
     if ! cmp -s "$CT_SRC/Rocky10CallTime.pm" "$CT_PMDEST" 2>/dev/null; then
         cp "$CT_SRC/Rocky10CallTime.pm" "$CT_PMDEST" && chmod 644 "$CT_PMDEST"
@@ -3577,11 +3561,14 @@ PathChanged=/usr/src/astguiclient/trunk/www/agc
 PathChanged=/var/www/html/agc
 PathChanged=/usr/share/astguiclient/libs/Asterisk
 PathChanged=/usr/local/share/perl5
-PathChanged=/usr/local/share/perl5/5.40/Asterisk
+PathChanged=@PERL_SITELIB@/Asterisk
 
 [Install]
 WantedBy=multi-user.target
 REPATCH_PATH_EOF
+# The unit file is written from a quoted heredoc; fill in the real site-Perl
+# dir (/usr/local/share/perl5 on Rocky 8, no version folder).
+sed -i "s|@PERL_SITELIB@|${PERL_SITELIB}|" /etc/systemd/system/vicidial-rocky10-repatch.path
 
 systemctl daemon-reload
 systemctl enable --now vicidial-rocky10-repatch.path && \
@@ -3782,10 +3769,10 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 
 info "Installation Summary:"
-info "  DAHDI Linux 3.4.0     : Installed (FrancoSmash73 - kernel 6.12 patched)"
+info "  DAHDI Linux 3.4.0     : Installed (FrancoSmash73 - EL8 4.18 + 6.12 compatible)"
 info "  DAHDI Tools 3.4.0     : Installed (FrancoSmash73 - autotools patched)"
 info "  LibPRI 1.6.1          : Installed"
-info "  Asterisk 18 (vici)    : Running (ViciDial-patched)"
+info "  Asterisk ${ASTERISK_VERSION}      : Running (plain upstream)"
 info "  ViciDial              : Installed (FrancoSmash73 method)"
 info "  DB Schema             : Pre-loaded before install.pl"
 info "  ConfBridge            : Configured (all 9 profiles)"
@@ -3984,7 +3971,7 @@ success "Installation complete! Ready to use."
 echo ""
 echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║  ViciDial ULTIMATE v11.2 - Install Complete    ║${NC}"
-echo -e "${GREEN}║  Rocky Linux / AlmaLinux 10.x - VoIP-Only Ready!    ║${NC}"
+echo -e "${GREEN}║  Rocky Linux / AlmaLinux 8.10 - VoIP-Only Ready!    ║${NC}"
 echo -e "${GREEN}║  ⭐ ZERO duplicate processes guaranteed              ║${NC}"
 echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
 echo ""
