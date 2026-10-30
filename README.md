@@ -1,7 +1,26 @@
-# ViciDial Rocky Linux 10 Install Scripts
+# ViciDial Rocky Linux 8 Install Scripts
 
-**Asterisk:** 18.21.0-vici | **ViciDial:** SVN trunk | **OS:** Rocky Linux 10.x / AlmaLinux 10.x
-**PHP:** 8.3 | **MariaDB:** 10.11 | **Perl:** 5.40
+**Asterisk:** 20.18.2 (plain upstream) | **ViciDial:** SVN trunk | **OS:** Rocky Linux 8.10 / AlmaLinux 8.10
+**PHP:** 8.3 (Remi) | **MariaDB:** 10.11 (`mariadb:10.11` module) | **Perl:** 5.26
+
+Ported from [vicidial-rocky10](https://github.com/FrancoSmash73/vicidial-rocky10).
+Script file names still say `rocky10`; they target Rocky 8.10.
+
+## Rocky 8 differences from the Rocky 10 build
+
+| Area | Rocky 10 build | This repo (Rocky 8.10) |
+|---|---|---|
+| OS check | 10.x | 8.10 or newer 8.x |
+| Extra repo | CRB | PowerTools (+ EPEL 8, `remi-release-8.rpm`) |
+| MariaDB | default 10.11 | `dnf module enable mariadb:10.11` (default stream is 10.3) |
+| `perl-DBD-MariaDB` | dnf | built from source (not packaged for EL8) |
+| Perl module dir | `/usr/local/share/perl5/5.40` | `$Config{installsitelib}` = `/usr/local/share/perl5` |
+| Python 3 | preinstalled | `dnf install python3` (Part 1) |
+| Asterisk | 18.21.0-vici | 20.18.2 plain upstream (matches Oliver) |
+| DAHDI | kernel 6.12 | needs dahdi-linux with the EL8 `timer_container_of` compat fix (kernel 4.18) |
+
+**Before Part 1:** run `bash rocky8_package_check.sh` on the new box. It prints
+only the packages that are missing, in one short list.
 
 ---
 

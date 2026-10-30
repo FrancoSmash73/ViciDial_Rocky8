@@ -6,11 +6,11 @@
 # Created: February 16, 2026
 # Updated: 2026-02-25
 # Author: Frank Mac + Claude (Anthropic)
-# Target: Rocky Linux 10.x / AlmaLinux 10.x
+# Target: Rocky Linux 8.10 / AlmaLinux 8.10 (ported from the Rocky 10 build)
 #
 # FEATURES:
 # ✅ Native perl-DBD-MariaDB (NOT perl-DBD-MySQL)
-# ✅ MariaDB 10.11 from native Rocky repos
+# ✅ MariaDB 10.11 from the Rocky 8 AppStream module stream (mariadb:10.11, 8.10+)
 # ✅ PHP 8.3 from Remi repository
 # ✅ Progress tracking with resume capability
 # ✅ Comprehensive error handling
@@ -194,7 +194,7 @@ echo "║                                                           ║"
 echo "║        ViciDial ULTIMATE Installation - Part 1            ║"
 echo "║          Foundation & Dependencies Setup                  ║"
 echo "║                                                           ║"
-echo "║       Version $VERSION - Rocky/AlmaLinux 10.x                  ║"
+echo "║       Version $VERSION - Rocky/AlmaLinux 8.10                  ║"
 echo "║                                                           ║"
 echo "║  NO sketchy downloads | NO hardcoded passwords            ║"
 echo "║  Native MariaDB driver | Professional security            ║"
@@ -222,11 +222,12 @@ fi
 source /etc/os-release
 
 if [[ "$ID" != "rocky" && "$ID" != "almalinux" ]]; then
-    error "This script requires Rocky Linux or AlmaLinux 10.x (Detected: $PRETTY_NAME)"
+    error "This script requires Rocky Linux or AlmaLinux 8.10 (Detected: $PRETTY_NAME)"
 fi
 
-if [[ ! "$VERSION_ID" =~ ^10\. ]]; then
-    error "This script requires Rocky/AlmaLinux 10.x (Detected: $VERSION_ID)"
+# Rocky 8.10 or newer 8.x: the mariadb:10.11 module stream only exists from 8.10.
+if [[ ! "$VERSION_ID" =~ ^8\.([0-9]+)$ ]] || [ "${BASH_REMATCH[1]}" -lt 10 ]; then
+    error "This script requires Rocky/AlmaLinux 8.10 or newer 8.x (Detected: $VERSION_ID). Run 'dnf update' to reach 8.10 first."
 fi
 
 OS_NAME="$NAME"
@@ -383,8 +384,18 @@ if ! is_complete "SYSTEM_UPDATE"; then
     log "Updating system packages..."
     dnf update -y
     
-    log "Installing EPEL release..."
-    dnf install -y epel-release
+    log "Installing EPEL release + dnf-plugins-core..."
+    dnf install -y epel-release dnf-plugins-core
+
+    # Rocky 8 name for what Rocky 9/10 call CRB. Remi, EPEL and Asterisk's
+    # install_prereq all need it (libedit-devel, etc.).
+    log "Enabling PowerTools repository..."
+    dnf config-manager --set-enabled powertools
+
+    # Rocky 8 minimal images ship no /usr/bin/python3 (only platform-python).
+    # The call-time guard patchers and Part 3's ps fix run /usr/bin/python3.
+    log "Installing python3..."
+    dnf install -y python3
     
     mark_complete "SYSTEM_UPDATE"
     success "System updated"
@@ -420,10 +431,12 @@ section "STEP 3/10: PHP 8.3 INSTALLATION"
 
 if ! is_complete "PHP_INSTALL"; then
     log "Adding Remi repository..."
-    dnf install -y https://rpms.remirepo.net/enterprise/remi-release-10.rpm
+    dnf install -y https://rpms.remirepo.net/enterprise/remi-release-8.rpm
     
-    log "Enabling CRB (CodeReady Builder) repository..."
-    dnf config-manager --set-enabled crb
+    # Remi needs PowerTools (Rocky 8's CRB); already enabled in step 1, kept
+    # here so a resumed run that skipped step 1 still has it.
+    log "Enabling PowerTools repository..."
+    dnf config-manager --set-enabled powertools
     
     log "Enabling PHP 8.3 module from Remi..."
     dnf module reset php -y
@@ -582,7 +595,7 @@ fi
 section "STEP 5/10: MARIADB 10.11"
 
 if ! is_complete "MARIADB_INSTALL"; then
-    log "Installing MariaDB 10.11 from native Rocky repositories..."
+    log "Installing MariaDB 10.11 from the Rocky 8 AppStream module stream..."
     
     # Remove any existing MariaDB official repo if present
     rm -f /etc/yum.repos.d/mariadb.repo
@@ -590,8 +603,19 @@ if ! is_complete "MARIADB_INSTALL"; then
     # Clean DNF cache to ensure we're using Rocky repos only
     dnf clean all
     
-    # Install MariaDB from Rocky's native repositories
+    # Rocky 8's default mariadb stream is 10.3. 10.11 is a separate module
+    # stream, added in 8.10 (RHEA-2024:3098).
+    if ! dnf module list mariadb 2>/dev/null | grep -qE '^mariadb\s+10\.11'; then
+        error "mariadb:10.11 module stream not found - this needs Rocky 8.10 (run 'dnf update' and reboot)"
+    fi
+    dnf module reset mariadb -y
+    dnf module enable mariadb:10.11 -y
     dnf install -y mariadb-server mariadb mariadb-devel
+
+    # /usr/bin/mariadb_config (used to build DBD::MariaDB and DBD::mysql below)
+    # comes from the connector-c devel package.
+    dnf install -y mariadb-connector-c-devel || \
+        warning "mariadb-connector-c-devel not installed - check /usr/bin/mariadb_config exists before Step 9"
     
     systemctl enable mariadb
     systemctl start mariadb
@@ -788,17 +812,16 @@ section "STEP 9/10: PERL MODULES (Native MariaDB)"
 
 if ! is_complete "PERL_MODULES"; then
     log "Installing Perl base packages..."
+    # Rocky 8 + EPEL 8 core set. perl-DBD-MariaDB is NOT packaged for EL8
+    # (EPEL request still open, bz#1850645) - it is built from source below.
     dnf install -y \
-        perl perl-core perl-devel perl-CPAN \
+        perl perl-devel perl-CPAN \
         perl-ExtUtils-MakeMaker perl-ExtUtils-Manifest \
         perl-DBI perl-libwww-perl perl-Time-HiRes \
         perl-Digest-MD5 perl-Digest-SHA perl-IO-Socket-SSL \
-        perl-LWP-Protocol-https perl-Text-CSV_XS \
-        perl-Spreadsheet-ParseExcel perl-Archive-Zip \
-        perl-HTML-Parser perl-HTML-Tree perl-MailTools \
-        perl-Net-Server perl-Compress-Raw-Zlib \
-        perl-MIME-tools \
-	perl-DBD-MariaDB
+        perl-LWP-Protocol-https perl-Archive-Zip \
+        perl-HTML-Parser perl-MailTools \
+        perl-Compress-Raw-Zlib
 
     
     
@@ -809,6 +832,26 @@ if ! is_complete "PERL_MODULES"; then
     log "Installing CPAN modules..."
     # Use cpanm for better non-interactive installation
     dnf install -y perl-App-cpanminus || cpan App::cpanminus
+
+    # Packages whose EL8/EPEL 8 availability varies: try dnf one at a time and
+    # fall back to cpanm, so one missing name can't abort Part 1 under set -e.
+    log "Installing optional Perl packages (dnf, falling back to cpanm)..."
+    for _pm in \
+        "perl-core:" \
+        "perl-Text-CSV_XS:Text::CSV_XS" \
+        "perl-Spreadsheet-ParseExcel:Spreadsheet::ParseExcel" \
+        "perl-HTML-Tree:HTML::Tree" \
+        "perl-Net-Server:Net::Server" \
+        "perl-MIME-tools:MIME::Tools"; do
+        _pkg="${_pm%%:*}"; _mod="${_pm#*:}"
+        if dnf install -y "$_pkg" >/dev/null 2>&1; then
+            success "$_pkg (dnf)"
+        elif [ -n "$_mod" ] && cpanm --notest "$_mod"; then
+            success "$_mod (cpanm fallback)"
+        else
+            warning "$_pkg not available via dnf${_mod:+ or cpanm} - continuing"
+        fi
+    done
 
     log "Installing NATIVE DBD::MariaDB driver from source..."
     cd /usr/src
