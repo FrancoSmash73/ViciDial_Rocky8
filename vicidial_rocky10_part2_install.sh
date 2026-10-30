@@ -2350,18 +2350,24 @@ chown -R asterisk:asterisk /var/spool/asterisk
 chown -R asterisk:asterisk /var/lib/asterisk
 
 # FIX: Ensure screen directory has proper permissions (CRITICAL for GNU screen)
+# Rocky 8 ships screen 4.6 installed setgid to the "screen" group, and it
+# refuses to start unless /run/screen is exactly 0775 root:screen ("Directory
+# '/run/screen' must have mode 775"). Rocky 10's screen 5 wanted 1777 instead;
+# that setting breaks screen here. Match the binary's group.
 log "Setting up GNU screen session directory..."
+SCREEN_GROUP="$(stat -c %G "$(command -v screen)" 2>/dev/null || echo root)"
 mkdir -p /run/screen
-chmod 777 /run/screen
-chmod +t /run/screen  # Sticky bit - prevents users from deleting others' sessions
-success "Screen directory configured: /run/screen (mode 1777)"
-# FIX: screen 5.0.1 on Rocky Linux 10 requires mode 1777.
-# tmpfiles.d resets /run/screen to 0775 on every boot unless overridden here.
-cat > /etc/tmpfiles.d/screen-fix.conf << 'TMPFILES_EOF'
-# screen 5.0.1 on Rocky Linux 10 requires 1777 (not 0775 set by package default)
-d /run/screen 1777 root root
+chown root:"$SCREEN_GROUP" /run/screen
+chmod 0775 /run/screen
+success "Screen directory configured: /run/screen (mode 0775 root:$SCREEN_GROUP)"
+# Drop the Rocky 10 1777 override if an earlier run wrote it; the package's
+# own tmpfiles entry already recreates /run/screen as 0775 root:screen.
+rm -f /etc/tmpfiles.d/screen-fix.conf
+cat > /etc/tmpfiles.d/screen.conf << TMPFILES_EOF
+# Rocky 8: screen 4.6 (setgid $SCREEN_GROUP) requires /run/screen 0775
+d /run/screen 0775 root $SCREEN_GROUP -
 TMPFILES_EOF
-success "tmpfiles.d override written: /run/screen will be 1777 on each boot"
+success "tmpfiles.d entry written: /run/screen will be 0775 root:$SCREEN_GROUP on each boot"
 
 log "Starting Asterisk using ViciDial's native screen-based method..."
 info "NOTE: ViciDial requires Asterisk to run in a GNU screen session"
