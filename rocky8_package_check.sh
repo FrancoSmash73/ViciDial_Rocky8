@@ -25,11 +25,39 @@ if [[ ! "$VERSION_ID" =~ ^8\.([0-9]+)$ ]] || [ "${BASH_REMATCH[1]}" -lt 10 ]; th
 fi
 
 echo "Setting up repos (same as Part 1)..."
-dnf install -y -q epel-release dnf-plugins-core >/dev/null 2>&1
-dnf config-manager --set-enabled powertools >/dev/null 2>&1
+dnf install -y -q epel-release dnf-plugins-core || echo -e "${RED}epel-release / dnf-plugins-core install failed (see above)${NC}"
+dnf config-manager --set-enabled powertools || echo -e "${RED}could not enable powertools (see above)${NC}"
 rpm -q remi-release >/dev/null 2>&1 || \
-    dnf install -y -q https://rpms.remirepo.net/enterprise/remi-release-8.rpm >/dev/null 2>&1
-dnf makecache -q >/dev/null 2>&1
+    dnf install -y -q https://rpms.remirepo.net/enterprise/remi-release-8.rpm || \
+    echo -e "${RED}remi-release-8 install failed (see above)${NC}"
+dnf makecache || echo -e "${RED}dnf makecache failed (see above)${NC}"
+
+# Every repo the installer pulls from must be enabled, or packages that only
+# live there would show up as "missing" for the wrong reason.
+MISSING_REPOS=()
+_enabled=$(dnf -q repolist --enabled 2>/dev/null | awk 'NR>1 {print $1}')
+for r in baseos appstream powertools epel remi-safe remi-modular; do
+    grep -qx "$r" <<<"$_enabled" || MISSING_REPOS+=("$r")
+done
+if [ ${#MISSING_REPOS[@]} -gt 0 ]; then
+    echo -e "${RED}Repos not enabled: ${MISSING_REPOS[*]} - results below will be incomplete${NC}"
+fi
+
+# Sanity check: if dnf can't even find bash, every lookup below would come
+# back empty and the "missing" list would be meaningless. Show the real error
+# and stop instead.
+_q() { dnf -q repoquery --disable-modular-filtering --latest-limit 1 --whatprovides "$1"; }
+if ! _sanity=$(_q bash 2>&1) || ! grep -q '^bash-' <<<"$_sanity"; then
+    echo ""
+    echo -e "${RED}dnf can't query the repos, so this check can't run. dnf said:${NC}"
+    echo "$_sanity"
+    echo ""
+    echo "Enabled repos:"
+    dnf repolist
+    echo ""
+    echo "Paste everything above back to Claude."
+    exit 1
+fi
 
 # Module streams the installer enables
 echo ""
@@ -82,8 +110,10 @@ echo ""
 echo "Checking ${#PKGS[@]} packages..."
 MISSING=()
 for p in "${PKGS[@]}"; do
-    if ! dnf -q repoquery --disable-modular-filtering --latest-limit 1 "$p" 2>/dev/null | grep -q . \
-       && ! rpm -q "$p" >/dev/null 2>&1; then
+    # --whatprovides so names that are virtual on Rocky 8 still count
+    # (pkgconfig -> pkgconf-pkg-config, python3 -> python36).
+    if ! _q "$p" 2>/dev/null | grep -q . \
+       && ! rpm -q --whatprovides "$p" >/dev/null 2>&1; then
         MISSING+=("$p")
     fi
 done
@@ -96,4 +126,10 @@ else
     printf '  %s\n' "${MISSING[@]}"
     echo ""
     echo "Paste just the lines above back to Claude."
+fi
+if [ ${#MISSING_REPOS[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${RED}INCOMPLETE: these repos were not enabled, so packages from them may be listed as missing: ${MISSING_REPOS[*]}${NC}"
+    echo "Paste the repo errors from the top of the output too."
+    exit 1
 fi
