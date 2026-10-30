@@ -1342,7 +1342,7 @@ echo -e "  ${GREEN}15. Custom User:${NC}                 ${YELLOW}custom${NC}"
 echo -e "  ${GREEN}16. Custom Password:${NC}             ${YELLOW}$CUSTOM_DB_PASSWORD${NC}"
 echo -e "  ${GREEN}17. DB Port:${NC}                     ${YELLOW}[press ENTER]${NC}"
 echo -e "  ${GREEN}18. Active keepalives:${NC}           ${YELLOW}[press ENTER]${NC}"
-echo -e "  ${GREEN}19. Asterisk version:${NC}            ${YELLOW}18.X${NC}"
+echo -e "  ${GREEN}19. Asterisk version:${NC}            ${YELLOW}${ASTERISK_VERSION}${NC}"
 echo -e "  ${GREEN}20. Copy sample configs:${NC}         ${YELLOW}y${NC}"
 echo ""
 echo -e "  ${YELLOW}For all remaining prompts, press ENTER to accept defaults.${NC}"
@@ -1400,6 +1400,18 @@ if grep -q '^VARserver_ip => *$' /etc/astguiclient.conf 2>/dev/null; then
     sed -i "s/^VARserver_ip => *\$/VARserver_ip => $SERVER_IP/" /etc/astguiclient.conf
     success "astguiclient.conf: VARserver_ip set to $SERVER_IP"
 fi
+
+# SAFETY NET: install.pl's "asterisk version" prompt writes whatever was typed
+# into astguiclient.conf (and newer install.pl versions also into the servers
+# row). Force both to the version this script actually builds, so a typo or an
+# old "18.X" answer can't leave ViciDial thinking it runs Asterisk 18.
+if grep -q '^VARasterisk_version' /etc/astguiclient.conf 2>/dev/null; then
+    sed -i "s/^VARasterisk_version.*/VARasterisk_version => ${ASTERISK_VERSION}/" /etc/astguiclient.conf
+    success "astguiclient.conf: VARasterisk_version set to ${ASTERISK_VERSION}"
+fi
+mysql -u root -p"${MYSQL_ROOT_PASSWORD}" asterisk \
+    -e "UPDATE servers SET asterisk_version='${ASTERISK_VERSION}';" \
+    || warning "Could not set servers.asterisk_version to ${ASTERISK_VERSION}"
 
 success "install.pl completed successfully"
 mark_step_complete "STEP_7"
